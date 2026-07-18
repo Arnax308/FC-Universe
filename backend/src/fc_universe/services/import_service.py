@@ -1,0 +1,791 @@
+"""Import service to process parsed save data into the database."""
+
+import logging
+from sqlalchemy.orm import Session
+
+from fc_universe.models import (
+    Career,
+    Season,
+    Club,
+    Player,
+    Competition,
+    CompetitionSeason,
+    PlayerSeasonStats,
+    ClubSeasonStats,
+    Transfer,
+    TimelineEvent,
+    Manager,
+    Award,
+)
+from fc_universe.parser.models import ParsedSaveData
+
+logger = logging.getLogger(__name__)
+
+
+def get_award_name(type_id: int, is_manager: bool = False) -> str:
+    if is_manager:
+        mapping = {
+            0: "Manager of the Month",
+            1: "Manager of the Year",
+        }
+        return mapping.get(type_id, f"Manager Award #{type_id}")
+    else:
+        mapping = {
+            0: "Player of the Month",
+            1: "Player of the Year (Ballon d'Or)",
+            2: "Golden Boot",
+            3: "Golden Glove",
+            4: "Best Player in the World",
+        }
+        return mapping.get(type_id, f"Player Award #{type_id}")
+
+
+def is_women_club(club) -> bool:
+    if not club:
+        return False
+    c_name = club.name or ""
+    c_league = club.league or ""
+    return "(W)" in c_name or "Women" in c_name or "Femenina" in c_league or "WSL" in c_league or "NWSL" in c_league or "Femenino" in c_name or "Feminine" in c_name
+
+
+class ImportService:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def import_save(self, parsed_data: ParsedSaveData) -> Career:
+        """Import a parsed save file into the database.
+        
+        This handles the core mapping logic from the raw DB tables
+        into our normalized SQLAlchemy models.
+        """
+        # 1. Get or create Career based on save identifier
+        career = self.db.query(Career).filter(
+            Career.save_identifier == parsed_data.header.save_identifier
+        ).first()
+
+        if not career:
+            logger.info(f"Creating new career: {parsed_data.header.career_name}")
+            career = Career(
+                name=parsed_data.header.career_name,
+                save_identifier=parsed_data.header.save_identifier,
+                manager_name=parsed_data.header.manager_name,
+                team_name=parsed_data.header.team_name,
+                team_id=parsed_data.header.team_id,
+                save_file_path=parsed_data.header.file_path,
+            )
+            self.db.add(career)
+            self.db.commit()
+            self.db.refresh(career)
+        else:
+            logger.info(f"Updating existing career: {career.name}")
+            # Update mutable header fields if needed
+            career.manager_name = parsed_data.header.manager_name
+            career.team_name = parsed_data.header.team_name
+            career.team_id = parsed_data.header.team_id
+            career.save_file_path = parsed_data.header.file_path
+            self.db.commit()
+
+        # 1b. Import Competitions/Leagues (onMQ)
+        raw_leagues = parsed_data.raw_tables.get("onMQ", [])
+        existing_comps = {
+            c.game_id: c for c in self.db.query(Competition).filter(Competition.career_id == career.id).all()
+        }
+        for l in raw_leagues:
+            l_id = l.get("aQrQ")
+            l_name = l.get("HEQX")
+            if l_id is None or not l_name:
+                continue
+            comp = existing_comps.get(l_id)
+            if not comp:
+                comp = Competition(
+                    career_id=career.id,
+                    game_id=l_id,
+                    name=l_name,
+                    type="league",
+                    country=str(l.get("WDGJ", ""))
+                )
+                self.db.add(comp)
+                existing_comps[l_id] = comp
+            else:
+                comp.name = l_name
+        self.db.commit()
+
+        # 1c. Resolve Current Season & Years (zgrE)
+        raw_history = parsed_data.raw_tables.get("zgrE", [])
+        max_vojk = 0
+        for h in raw_history:
+            vojk = h.get("vojk") or h.get("vojK") or 0
+            if vojk > max_vojk:
+                max_vojk = vojk
+        
+        current_season_year = 2025 + max_vojk
+        
+        # Seed all historical seasons
+        for yr in range(2025, current_season_year + 1):
+            season = self.db.query(Season).filter(Season.career_id == career.id, Season.year == yr).first()
+            if not season:
+                season = Season(career_id=career.id, year=yr, is_current=(yr == current_season_year))
+                self.db.add(season)
+                self.db.flush()
+                
+                # Season start event
+                self.db.add(TimelineEvent(
+                    career_id=career.id,
+                    season_id=season.id,
+                    event_type="season_start",
+                    description=f"The {yr} season has officially kicked off in the {career.name} universe!",
+                    gender=2
+                ))
+            else:
+                season.is_current = (yr == current_season_year)
+        self.db.commit()
+        
+        # Get active season object
+        active_season = self.db.query(Season).filter(Season.career_id == career.id, Season.is_current == True).first()
+
+        # Build team_id -> league_name mapping from qdZF and Competitions
+        team_league_map = {}
+        raw_standings = parsed_data.raw_tables.get("qdZF", [])
+        for s in raw_standings:
+            t_id = s.get("mCXg")
+            l_id = s.get("aQrQ")
+            if t_id is not None and l_id is not None:
+                comp = existing_comps.get(l_id)
+                if comp:
+                    team_league_map[t_id] = comp.name
+
+        # 2. Extract and import Clubs
+        raw_clubs = parsed_data.raw_tables.get("lyxL", [])
+        existing_clubs = {}
+        if raw_clubs:
+            logger.info(f"Importing {len(raw_clubs)} clubs...")
+            existing_clubs = {
+                c.game_id: c
+                for c in self.db.query(Club).filter(Club.career_id == career.id, Club.game_id.isnot(None)).all()
+            }
+            
+            for c in raw_clubs:
+                game_id = c.get("mCXg")
+                name = c.get("AUsv")
+                gender = c.get("EveZ", 0)
+                
+                if not name or game_id is None:
+                    continue
+                
+                # Append suffix to women's teams to avoid confusion and name collisions
+                if gender == 1 and not name.endswith(" (W)"):
+                    name = f"{name} (W)"
+                    
+                club = existing_clubs.get(game_id)
+                if not club:
+                    club = Club(career_id=career.id, game_id=game_id, name=name)
+                    existing_clubs[game_id] = club
+                    self.db.add(club)
+                else:
+                    club.name = name
+                
+                club.league = team_league_map.get(game_id)
+                club.overall_rating = c.get("UERs")
+                club.defense_rating = c.get("btsS")
+                club.midfield_rating = c.get("SqFN")
+                club.attack_rating = c.get("UAKP")
+                club.club_worth = c.get("QSnJ")
+                club.domestic_prestige = c.get("ppLE")
+                club.international_prestige = c.get("edvw")
+                club.foundation_year = c.get("yDDQ")
+                club.rival_team_id = c.get("erSL")
+            self.db.commit()
+
+        # Resolve active team and manager dynamically from user's career table (mPrV) and Knen
+        user_rows = parsed_data.raw_tables.get("mPrV", [])
+        if user_rows:
+            user_team_game_id = user_rows[0].get("NTyS")
+            if user_team_game_id is not None:
+                # Find the club in existing_clubs
+                user_club = existing_clubs.get(user_team_game_id)
+                if user_club:
+                    career.team_id = user_club.game_id
+                    career.team_name = user_club.name
+                    logger.info(f"Resolved user's active team: {user_club.name} (Game ID: {user_club.game_id})")
+                    
+                    # Resolve manager name
+                    raw_managers = parsed_data.raw_tables.get("Knen", [])
+                    for rm in raw_managers:
+                        if rm.get("mCXg") == user_team_game_id:
+                            first_name = rm.get("HdeP", "").strip()
+                            last_name = rm.get("rREd", "").strip()
+                            common_name = rm.get("xnfZ", "").strip()
+                            mgr_name = common_name if common_name else f"{first_name} {last_name}".strip()
+                            if mgr_name:
+                                career.manager_name = mgr_name
+                                logger.info(f"Resolved user's manager name: {mgr_name}")
+                                break
+                    self.db.commit()
+
+        # 3. Extract and import Players
+        from fc_universe.services.name_resolver import NameResolver
+        name_resolver = NameResolver()
+
+        # Load dynamically generated names (youth players) from save file
+        dc_names = {}
+        raw_dc_names = parsed_data.raw_tables.get("bneD", [])
+        for row in raw_dc_names:
+            nameid = row.get("FuiB")
+            name = row.get("vIys")
+            if nameid is not None and name:
+                dc_names[nameid] = name
+
+        # Build set of national team IDs from CxJp (leagueteamlinks)
+        national_team_ids = set()
+        raw_cxjp = parsed_data.raw_tables.get("CxJp", [])
+        for r in raw_cxjp:
+            l_id = r.get("aQrQ")
+            t_id = r.get("mCXg")
+            if l_id in (78, 2136) and t_id is not None:
+                national_team_ids.add(t_id)
+
+        # Build player_id -> RrqT record mapping (preferring club links over national team links)
+        player_link_map = {}
+        raw_links = parsed_data.raw_tables.get("RrqT", [])
+        for link in raw_links:
+            p_id = link.get("ykFq")
+            c_id = link.get("mCXg")
+            if p_id is not None and c_id is not None:
+                is_national = (c_id in national_team_ids)
+                if p_id not in player_link_map:
+                    player_link_map[p_id] = link
+                else:
+                    existing_c_id = player_link_map[p_id].get("mCXg")
+                    existing_is_national = (existing_c_id in national_team_ids)
+                    # Overwrite if current mapped link is a national team but the new link is a club team
+                    if existing_is_national and not is_national:
+                        player_link_map[p_id] = link
+
+        raw_players = parsed_data.raw_tables.get("CZUM", [])
+        if raw_players:
+            logger.info(f"Importing {len(raw_players)} players...")
+            existing_players = {
+                p.game_id: p for p in self.db.query(Player).filter(Player.career_id == career.id).all()
+            }
+            new_players = []
+            pending_transfers = []
+            
+            # Identify active loans
+            loans = {l.get("ykFq") for l in parsed_data.raw_tables.get("ZrAO", []) if l.get("ykFq") is not None}
+            # Club ID mapping to check if a club is Free Agents (111592)
+            club_id_to_game_id = {c.id: c.game_id for c in existing_clubs.values()}
+            
+            for p in raw_players:
+                game_id = p.get("ykFq")
+                if game_id is None:
+                    continue
+
+                t_id = p.get("tHlO")
+                q_id = p.get("QCfa")
+                h_id = p.get("HDYx")
+
+                # If the player already exists in the DB with a known_name, keep it.
+                # The name_scraper background task will fill in the missing ones.
+                existing_player = existing_players.get(game_id)
+                if existing_player and existing_player.known_name:
+                    name_str = existing_player.known_name
+                else:
+                    name_str = name_resolver.resolve_name(game_id, t_id, q_id, h_id, dc_names)
+
+                if not name_str:
+                    if game_id >= 270000:
+                        name_str = f"Youth Player #{game_id}"
+                    else:
+                        name_str = f"Player #{game_id}"
+
+                # Get club link from RrqT
+                link = player_link_map.get(game_id)
+                club_db_id = None
+                if link:
+                    c_id = link.get("mCXg")
+                    linked_club = existing_clubs.get(c_id)
+                    if linked_club:
+                        club_db_id = linked_club.id
+
+                # Detect Transfers
+                if existing_player:
+                    old_club_id = existing_player.current_club_id
+                    if old_club_id is not None and old_club_id != club_db_id:
+                        old_game_id = club_id_to_game_id.get(old_club_id)
+                        new_game_id = club_id_to_game_id.get(club_db_id)
+                        
+                        transfer_type = "buy"
+                        if new_game_id == 111592:
+                            transfer_type = "release"
+                        elif old_game_id == 111592:
+                            transfer_type = "free"
+                        elif game_id in loans:
+                            transfer_type = "loan"
+                            
+                        pending_transfers.append({
+                            "player_game_id": game_id,
+                            "from_club_id": old_club_id,
+                            "to_club_id": club_db_id,
+                            "type": transfer_type
+                        })
+
+                player_data = dict(
+                    career_id=career.id,
+                    game_id=game_id,
+                    first_name="",
+                    last_name="",
+                    known_name=name_str,
+                    overall=p.get("UERs"),
+                    potential=p.get("mpuH"),
+                    gender=p.get("EveZ"),
+                    current_club_id=club_db_id,
+                    sprint_speed=p.get("NrcP"),
+                    acceleration=p.get("SPge"),
+                    finishing=p.get("xJZL"),
+                    shot_power=p.get("ohpV"),
+                    short_passing=p.get("vObb"),
+                    long_passing=p.get("kerE"),
+                    dribbling=p.get("nEbM"),
+                    ball_control=p.get("MgwU"),
+                    standing_tackle=p.get("CsyD"),
+                    sliding_tackle=p.get("PhuM"),
+                    strength=p.get("nmgT"),
+                    stamina=p.get("XjDq"),
+                    agility=p.get("RRQB"),
+                    balance=p.get("onkY"),
+                    reactions=p.get("YCnI"),
+                    composure=p.get("jlQJ"),
+                    interceptions=p.get("wWzG"),
+                    positioning=p.get("XsFD"),
+                    vision=p.get("ZoOK"),
+                    crossing=p.get("wGOH"),
+                    jumping=p.get("URGo"),
+                    heading_accuracy=p.get("aReg"),
+                    aggression=p.get("iTce"),
+                    long_shots=p.get("CsBG"),
+                    penalties=p.get("AGsE"),
+                    free_kick_accuracy=p.get("VgKc"),
+                    curve=p.get("YFaA"),
+                    volleys=p.get("Dydz"),
+                    gk_diving=p.get("xrSG"),
+                    gk_handling=p.get("GBGj"),
+                    gk_kicking=p.get("kqda"),
+                    gk_positioning=p.get("yfhq"),
+                    gk_reflexes=p.get("eYFI"),
+                    defensive_awareness=p.get("SJKz"),
+                    weak_foot_ability=p.get("aOBn"),
+                    skill_moves=p.get("BAPc"),
+                    international_rep=p.get("WVsa"),
+                )
+
+                if not existing_player:
+                    new_players.append(Player(**player_data))
+                else:
+                    for k, v in player_data.items():
+                        setattr(existing_player, k, v)
+                    
+            if new_players:
+                self.db.add_all(new_players)
+            self.db.commit()
+
+            # Now save the pending transfers and generate timeline events
+            if pending_transfers:
+                logger.info(f"Processing {len(pending_transfers)} player transfers...")
+                db_players = {
+                    p.game_id: p for p in self.db.query(Player).filter(Player.career_id == career.id).all()
+                }
+                new_transfers = []
+                for pt in pending_transfers:
+                    player_obj = db_players.get(pt["player_game_id"])
+                    if not player_obj:
+                        continue
+                    
+                    t = Transfer(
+                        career_id=career.id,
+                        season_id=active_season.id if active_season else None,
+                        player_id=player_obj.id,
+                        from_club_id=pt["from_club_id"],
+                        to_club_id=pt["to_club_id"],
+                        type=pt["type"],
+                        fee=0.0
+                    )
+                    new_transfers.append(t)
+                
+                if new_transfers:
+                    self.db.add_all(new_transfers)
+                    self.db.commit()
+                    
+                    # Generate timeline events
+                    db_clubs = {c.id: c for c in self.db.query(Club).filter(Club.career_id == career.id).all()}
+                    player_id_map = {p.id: p for p in db_players.values()}
+                    new_events = []
+                    
+                    for t_rec in new_transfers:
+                        p_obj = player_id_map.get(t_rec.player_id)
+                        player_name = p_obj.known_name if p_obj and p_obj.known_name else (f"{p_obj.first_name} {p_obj.last_name}".strip() if p_obj else "Unknown Player")
+                        from_club_name = db_clubs.get(t_rec.from_club_id).name if t_rec.from_club_id in db_clubs else "Unknown Club"
+                        to_club_name = db_clubs.get(t_rec.to_club_id).name if t_rec.to_club_id in db_clubs else "Unknown Club"
+                        
+                        if t_rec.type == "buy":
+                            desc = f"{player_name} has completed a transfer from {from_club_name} to {to_club_name}."
+                        elif t_rec.type == "loan":
+                            desc = f"{player_name} has joined {to_club_name} on loan from {from_club_name}."
+                        elif t_rec.type == "free":
+                            desc = f"{player_name} has signed with {to_club_name} as a free agent."
+                        elif t_rec.type == "release":
+                            desc = f"{player_name} has been released by {from_club_name}."
+                        else:
+                            desc = f"{player_name} moved from {from_club_name} to {to_club_name}."
+                            
+                        event = TimelineEvent(
+                            career_id=career.id,
+                            season_id=active_season.id if active_season else None,
+                            event_type="transfer",
+                            description=desc,
+                            related_player_id=t_rec.player_id,
+                            related_club_id=t_rec.to_club_id or t_rec.from_club_id,
+                            gender=p_obj.gender if p_obj else 0
+                        )
+                        new_events.append(event)
+                        
+                    if new_events:
+                        self.db.add_all(new_events)
+                        self.db.commit()
+        # 4. Import Club Season Statistics (qdZF)
+        if active_season and raw_standings:
+            logger.info("Importing club season statistics...")
+            existing_club_stats = {
+                cs.club_id: cs
+                for cs in self.db.query(ClubSeasonStats).filter(ClubSeasonStats.season_id == active_season.id).all()
+            }
+            
+            for s in raw_standings:
+                t_id = s.get("mCXg")
+                l_id = s.get("aQrQ")
+                if t_id is None or l_id is None:
+                    continue
+                
+                club = existing_clubs.get(t_id)
+                comp = existing_comps.get(l_id)
+                if not club:
+                    continue
+                
+                stats = existing_club_stats.get(club.id)
+                if not stats:
+                    stats = ClubSeasonStats(
+                        club_id=club.id,
+                        season_id=active_season.id,
+                        competition_id=comp.id if comp else None
+                    )
+                    self.db.add(stats)
+                    existing_club_stats[club.id] = stats
+                
+                stats.position = s.get("fNOl")
+                stats.wins = (s.get("oxHc", 0) or 0) + (s.get("txAm", 0) or 0)
+                stats.draws = (s.get("HjBw", 0) or 0) + (s.get("vmpt", 0) or 0)
+                stats.losses = (s.get("oQGq", 0) or 0) + (s.get("QMes", 0) or 0)
+                stats.goals_for = s.get("BgxX", 0) or 0
+                stats.goals_against = s.get("HtAc", 0) or 0
+                stats.points = s.get("Yyym", 0) or 0
+
+        # 5. Import Player Season Statistics (RrqT)
+        if active_season and raw_links:
+            logger.info("Importing player season statistics...")
+            db_players = {
+                p.game_id: p for p in self.db.query(Player).filter(Player.career_id == career.id).all()
+            }
+            
+            existing_player_stats = {
+                ps.player_id: ps
+                for ps in self.db.query(PlayerSeasonStats).filter(PlayerSeasonStats.season_id == active_season.id).all()
+            }
+            
+            for link in raw_links:
+                p_id = link.get("ykFq")
+                t_id = link.get("mCXg")
+                if p_id is None:
+                    continue
+                
+                player = db_players.get(p_id)
+                club = existing_clubs.get(t_id)
+                if not player:
+                    continue
+                
+                stats = existing_player_stats.get(player.id)
+                if not stats:
+                    stats = PlayerSeasonStats(
+                        player_id=player.id,
+                        season_id=active_season.id
+                    )
+                    self.db.add(stats)
+                    existing_player_stats[player.id] = stats
+                
+                stats.club_id = club.id if club else None
+                stats.appearances = link.get("stFk", 0) or 0
+                stats.goals = link.get("UMDX", 0) or 0
+                stats.assists = link.get("NbFh", 0) or link.get("Vili", 0) or 0
+                stats.yellow_cards = link.get("jtWI", 0) or 0
+                stats.red_cards = link.get("jIcz", 0) or 0
+                stats.clean_sheets = link.get("vjla", 0) or 0
+                stats.avg_rating = (link.get("pchV", 0) or 0) / 10.0
+            
+            self.db.commit()
+
+        # 5b. Detect Player Retirements
+        if raw_players:
+            save_game_ids = {p.get("ykFq") for p in raw_players if p.get("ykFq") is not None}
+            db_active_players = self.db.query(Player).filter(Player.career_id == career.id, Player.is_retired == False).all()
+            for db_p in db_active_players:
+                if db_p.game_id not in save_game_ids:
+                    db_p.is_retired = True
+                    p_name = db_p.known_name or f"{db_p.first_name} {db_p.last_name}".strip() or "Unknown Player"
+                    
+                    self.db.add(TimelineEvent(
+                        career_id=career.id,
+                        season_id=active_season.id if active_season else None,
+                        event_type="retirement",
+                        description=f"{p_name} has retired from professional football.",
+                        related_player_id=db_p.id
+                    ))
+            self.db.commit()
+
+        # 6. Import Managers (Knen)
+        raw_managers = parsed_data.raw_tables.get("Knen", [])
+        if raw_managers:
+            logger.info(f"Importing {len(raw_managers)} managers...")
+            existing_managers = {
+                m.game_id: m for m in self.db.query(Manager).filter(Manager.career_id == career.id).all()
+            }
+            
+            for rm in raw_managers:
+                game_id = rm.get("VHIB")
+                if game_id is None:
+                    continue
+                    
+                first_name = rm.get("HdeP", "").strip()
+                last_name = rm.get("rREd", "").strip()
+                common_name = rm.get("xnfZ", "").strip()
+                name_str = common_name if common_name else f"{first_name} {last_name}".strip()
+                if not name_str:
+                    name_str = f"Manager #{game_id}"
+                    
+                team_game_id = rm.get("mCXg")
+                club_db_id = None
+                linked_club = None
+                if team_game_id is not None:
+                    linked_club = existing_clubs.get(team_game_id)
+                    if linked_club:
+                        club_db_id = linked_club.id
+                        
+                mgr = existing_managers.get(game_id)
+                if not mgr:
+                    mgr = Manager(
+                        career_id=career.id,
+                        game_id=game_id,
+                        name=name_str,
+                        club_id=club_db_id,
+                        start_season_id=active_season.id if active_season else None
+                    )
+                    self.db.add(mgr)
+                    existing_managers[game_id] = mgr
+                    
+                    if club_db_id:
+                        event_desc = f"{name_str} has been appointed manager of {linked_club.name}."
+                        self.db.add(TimelineEvent(
+                            career_id=career.id,
+                            season_id=active_season.id if active_season else None,
+                            event_type="manager_appointment",
+                            description=event_desc,
+                            related_club_id=club_db_id,
+                            gender=1 if is_women_club(linked_club) else 0
+                        ))
+                else:
+                    if mgr.club_id != club_db_id:
+                        old_club_id = mgr.club_id
+                        mgr.club_id = club_db_id
+                        
+                        old_club = self.db.query(Club).filter(Club.id == old_club_id).first() if old_club_id else None
+                        new_club = self.db.query(Club).filter(Club.id == club_db_id).first() if club_db_id else None
+                        
+                        if old_club and new_club:
+                            event_desc = f"{name_str} has left {old_club.name} to become the manager of {new_club.name}."
+                        elif new_club:
+                            event_desc = f"{name_str} has been appointed manager of {new_club.name}."
+                        elif old_club:
+                            event_desc = f"{name_str} has left his post as manager of {old_club.name}."
+                        else:
+                            event_desc = f"{name_str} has changed club affiliations."
+                            
+                        self.db.add(TimelineEvent(
+                            career_id=career.id,
+                            season_id=active_season.id if active_season else None,
+                            event_type="manager_move",
+                            description=event_desc,
+                            related_club_id=club_db_id or old_club_id,
+                            gender=1 if (is_women_club(new_club) or is_women_club(old_club)) else 0
+                        ))
+                        
+            self.db.commit()
+
+        # 7. Import Player Awards (cPet)
+        raw_player_awards = parsed_data.raw_tables.get("cPet", [])
+        if raw_player_awards:
+            logger.info(f"Importing {len(raw_player_awards)} player awards...")
+            existing_awards = {
+                (a.season_id, a.player_id, a.name): a 
+                for a in self.db.query(Award).filter(Award.career_id == career.id, Award.type == "player").all()
+            }
+            db_players = {
+                p.game_id: p for p in self.db.query(Player).filter(Player.career_id == career.id).all()
+            }
+            
+            for ra in raw_player_awards:
+                player_game_id = ra.get("ykFq")
+                type_id = ra.get("Bwgx")
+                season_num = ra.get("vojK")
+                
+                if player_game_id is None or type_id is None:
+                    continue
+                    
+                player_obj = db_players.get(player_game_id)
+                if not player_obj:
+                    continue
+                    
+                award_year = 2025 + (season_num or 0)
+                award_season = self.db.query(Season).filter(Season.career_id == career.id, Season.year == award_year).first()
+                if not award_season:
+                    continue
+                    
+                award_name = get_award_name(type_id, is_manager=False)
+                key = (award_season.id, player_obj.id, award_name)
+                
+                if key not in existing_awards:
+                    award_obj = Award(
+                        career_id=career.id,
+                        season_id=award_season.id,
+                        player_id=player_obj.id,
+                        name=award_name,
+                        type="player"
+                    )
+                    self.db.add(award_obj)
+                    existing_awards[key] = award_obj
+                    
+                    player_name = player_obj.known_name or f"{player_obj.first_name} {player_obj.last_name}".strip()
+                    event_desc = f"{player_name} has won the {award_name} award!"
+                    self.db.add(TimelineEvent(
+                        career_id=career.id,
+                        season_id=award_season.id,
+                        event_type="award",
+                        description=event_desc,
+                        related_player_id=player_obj.id,
+                        gender=player_obj.gender
+                    ))
+            self.db.commit()
+ 
+        # 8. Import Manager Awards (ShPa)
+        raw_mgr_awards = parsed_data.raw_tables.get("ShPa", [])
+        if raw_mgr_awards:
+            logger.info(f"Importing {len(raw_mgr_awards)} manager awards...")
+            existing_awards = {
+                (a.season_id, a.name): a 
+                for a in self.db.query(Award).filter(Award.career_id == career.id, Award.type == "manager").all()
+            }
+            
+            for ra in raw_mgr_awards:
+                team_game_id = ra.get("mCXg")
+                type_id = ra.get("Bwgx")
+                season_num = ra.get("vojK")
+                
+                if type_id is None:
+                    continue
+                    
+                award_year = 2025 + (season_num or 0)
+                award_season = self.db.query(Season).filter(Season.career_id == career.id, Season.year == award_year).first()
+                if not award_season:
+                    continue
+                    
+                award_name = get_award_name(type_id, is_manager=True)
+                key = (award_season.id, award_name)
+                
+                if key not in existing_awards:
+                    club_obj = existing_clubs.get(team_game_id)
+                    club_name = club_obj.name if club_obj else "their club"
+                    
+                    award_obj = Award(
+                        career_id=career.id,
+                        season_id=award_season.id,
+                        name=award_name,
+                        type="manager"
+                    )
+                    self.db.add(award_obj)
+                    existing_awards[key] = award_obj
+                    
+                    event_desc = f"Manager of {club_name} has won the {award_name} award!"
+                    self.db.add(TimelineEvent(
+                        career_id=career.id,
+                        season_id=award_season.id,
+                        event_type="award",
+                        description=event_desc,
+                        related_club_id=club_obj.id if club_obj else None,
+                        gender=1 if is_women_club(club_obj) else 0
+                    ))
+            self.db.commit()
+
+        # 9. Generate Competition Standings Winner Events
+        if active_season and raw_standings:
+            # Find active club's league to make sure we always include it
+            user_club = None
+            for club in existing_clubs.values():
+                if club.game_id == career.team_id:
+                    user_club = club
+                    break
+            user_league = user_club.league if user_club else None
+            
+            # Define keywords for major leagues
+            major_keywords = [
+                "premier league", "la liga", "laliga", "serie a", "bundesliga",
+                "ligue 1", "champions league", "wsl", "liga f", "nwsl", "women's super league",
+                "world cup", "copa america", "euro", "uefa"
+            ]
+
+            for s in raw_standings:
+                t_id = s.get("mCXg")
+                l_id = s.get("aQrQ")
+                position = s.get("fNOl")
+                
+                if position == 1:
+                    club = existing_clubs.get(t_id)
+                    comp = existing_comps.get(l_id)
+                    
+                    if club and comp:
+                        comp_name = comp.name or ""
+                        # Only import major leagues or the league of the user's active club
+                        is_major = (user_league and comp_name.lower() == user_league.lower()) or \
+                                   any(kw in comp_name.lower() for kw in major_keywords)
+                        
+                        if not is_major:
+                            continue  # Ignore minor deterministic background leagues
+                            
+                        event_desc = f"{club.name} have won the {comp.name} title in the {active_season.year} season!"
+                        
+                        existing_event = self.db.query(TimelineEvent).filter(
+                            TimelineEvent.career_id == career.id,
+                            TimelineEvent.season_id == active_season.id,
+                            TimelineEvent.event_type == "trophy",
+                            TimelineEvent.related_competition_id == comp.id
+                        ).first()
+                        
+                        if not existing_event:
+                            self.db.add(TimelineEvent(
+                                career_id=career.id,
+                                season_id=active_season.id,
+                                event_type="trophy",
+                                description=event_desc,
+                                related_club_id=club.id,
+                                related_competition_id=comp.id,
+                                gender=1 if is_women_club(club) else 0
+                            ))
+            self.db.commit()
+
+        logger.info(f"Import complete for career {career.id}")
+        return career

@@ -1,0 +1,317 @@
+First of all, **FC Universe** is a great name. It's broad enough that it won't become obsolete with FC 27/28, and it perfectly describes the idea of building an alternate football universe with its own history.
+
+Here's a curated list of everything we've found so far that I think is worth studying.
+
+---
+
+# 📚 Existing Projects & Repositories
+
+## 1. [GioAc96/fc-cm-web-parser](https://github.com/GioAc96/fc-cm-web-parser?utm_source=chatgpt.com)
+**Purpose**
+
+* Browser-based parser for FC 25 Career Mode save files.
+
+**Tech**
+
+* TypeScript
+* Runs completely client-side
+* No server required
+
+**What it extracts**
+
+* Player data
+* Overall
+* Potential
+* PlayStyles
+* Positions
+* Clubs
+* Contracts
+* Attributes
+
+**Why it's important**
+This is probably your **best starting point**. Instead of reverse-engineering the save format yourself, adapt this parser to FC 26 if necessary. The author also mentions that the save format has remained fairly stable across recent FIFA/FC titles. ([Reddit][1])
+
+---
+
+## 2. [sammygriffiths/fifa-career-save-parser](https://github.com/sammygriffiths/fifa-career-save-parser?utm_source=chatgpt.com) 
+
+**Purpose**
+
+* Low-level parser for FIFA career save files.
+
+**Language**
+
+* JavaScript / Node.js
+
+**Why it's important**
+This is the parser that many later projects build upon. It decodes the binary save file into structured databases and tables, making it invaluable if you need to understand EA's save format. ([Skypack][2])
+
+---
+
+## 3. [xAranaktu GitHub](https://github.com/xAranaktu?utm_source=chatgpt.com)
+
+Probably the most well-known reverse engineer in the FIFA modding community.
+
+He has worked on:
+
+* FIFA Live Editor
+* Database reverse engineering
+* Save format research
+* Career Mode tools
+
+If you hit a wall with parsing, chances are he's already solved something similar.
+
+---
+
+## 4. [SirSpacePirate/fc-tracker](https://github.com/SirSpacePirate/fc-tracker?utm_source=chatgpt.com) 
+
+A passion project very similar in spirit.
+
+Features include:
+
+* Automatic save parsing
+* Offline tracker
+* HTML GUI
+* Converts saves into its own internal format
+
+The key takeaway is the architecture: **parse once → convert into your own schema → build everything on top of that**. ([Reddit][3])
+
+---
+
+## 5. [CMTracker](https://cmtracker.net?utm_source=chatgpt.com) 
+
+Probably the biggest existing Career Mode companion.
+
+Features:
+
+* Player scouting
+* Career statistics
+* Save uploads
+* Player database
+* Squad analysis
+
+Useful for inspiration, but your vision goes beyond it by focusing on long-term historical archives instead of just exposing the current save. ([Electronic Arts Inc.][4])
+
+---
+
+# 🛠️ Technologies
+
+## Backend
+
+### [FastAPI](https://fastapi.tiangolo.com/?utm_source=chatgpt.com)
+
+Purpose:
+
+* REST API
+* Import endpoints
+* Search endpoints
+* Analytics
+* Timeline generation
+
+---
+
+### [SQLAlchemy](https://www.sqlalchemy.org/?utm_source=chatgpt.com)
+
+Purpose:
+
+* ORM
+* Database models
+* Relationships
+* Queries
+
+---
+
+### [Alembic](https://alembic.sqlalchemy.org/?utm_source=chatgpt.com)
+
+Purpose:
+
+* Database migrations
+
+---
+
+### [PostgreSQL](https://www.postgresql.org/?utm_source=chatgpt.com)
+
+Purpose:
+
+* Main production database
+
+Stores:
+
+* Careers
+* Players
+* Clubs
+* Timeline
+* Awards
+* Transfers
+* Records
+
+---
+
+### [SQLite](https://www.sqlite.org/?utm_source=chatgpt.com)
+
+Purpose:
+
+* Lightweight local mode
+* Easier development
+
+---
+
+# File Monitoring
+
+## [Watchdog](https://github.com/gorakhargosh/watchdog?utm_source=chatgpt.com)
+
+Purpose:
+
+Monitor
+
+```
+EA FC Save Folder
+
+↓
+
+Save Changed
+
+↓
+
+Import Automatically
+```
+
+No manual importing.
+
+---
+
+# Frontend
+
+## [Next.js](https://nextjs.org/?utm_source=chatgpt.com)
+
+Purpose:
+
+Entire frontend
+
+Pages:
+
+* Dashboard
+* Players
+* Clubs
+* Timeline
+* Records
+
+---
+
+## [React](https://react.dev/?utm_source=chatgpt.com)
+
+Component library.
+
+---
+
+## [TypeScript](https://www.typescriptlang.org/?utm_source=chatgpt.com)
+
+Type safety.
+
+---
+
+## [Tailwind CSS](https://tailwindcss.com/?utm_source=chatgpt.com)
+
+UI styling.
+
+---
+
+# Charts
+
+## [Recharts](https://recharts.org/?utm_source=chatgpt.com)
+
+Good for:
+
+* Goal graphs
+* Trophy charts
+* Rankings
+* Analytics
+
+Alternative:
+
+## [Chart.js](https://www.chartjs.org/?utm_source=chatgpt.com)
+
+---
+
+# Desktop
+
+## [Tauri](https://tauri.app/?utm_source=chatgpt.com)
+
+I'd strongly recommend this over Electron.
+
+Advantages:
+
+* Much smaller executable
+* Lower RAM usage
+* Faster startup
+* Uses the system webview
+* Rust backend with your React frontend
+
+Perfect for your app.
+
+---
+
+# Optional
+
+## [Docker](https://www.docker.com/?utm_source=chatgpt.com)
+
+If you ever deploy FC Universe online.
+
+---
+
+# Nice-to-Have
+
+## [Pydantic](https://docs.pydantic.dev/?utm_source=chatgpt.com)
+
+Validation between parser and database.
+
+---
+
+## [Pytest](https://pytest.org/?utm_source=chatgpt.com)
+
+Testing.
+
+---
+
+# What to Study First
+
+If I were prioritizing your learning and implementation, I'd go in this order:
+
+1. **GioAc96/fc-cm-web-parser** – understand how it reads and parses saves.
+2. **sammygriffiths/fifa-career-save-parser** – learn the underlying binary format and data structures.
+3. **xAranaktu's work** – reference for reverse engineering and EA internals.
+4. **SirSpacePirate/fc-tracker** – study how they convert parsed data into an application-friendly format.
+5. Build your own import pipeline and database.
+
+## One architectural suggestion
+
+Don't make the parser directly populate your database. Instead, introduce a neutral intermediate representation:
+
+```text
+FC Save File
+      │
+      ▼
+Save Parser
+      │
+      ▼
+Normalized JSON
+      │
+      ▼
+Import Engine
+      │
+      ▼
+Database
+      │
+      ▼
+Analytics
+      │
+      ▼
+Frontend
+```
+
+That separation is incredibly valuable. If EA changes the save format in FC 27 or FC 28, you only need to update the parser that produces the normalized JSON. The import logic, database schema, analytics, and UI can remain almost entirely unchanged. It's a small design decision now that will save you a lot of maintenance work later.
+
+[1]: https://www.reddit.com/r/FifaCareers/comments/1ie1215/i_built_a_web_app_to_parse_fc25_career_mode_save/?utm_source=chatgpt.com "I built a web app to parse FC25 Career Mode save files and export player details as CSV!"
+[2]: https://www.skypack.dev/view/fifa-career-save-parser?utm_source=chatgpt.com "npm:fifa-career-save-parser | Skypack"
+[3]: https://www.reddit.com/r/FifaCareers/comments/1l8vrp7?utm_source=chatgpt.com "Career mode tracker"
+[4]: https://www.ea.com/games/ea-sports-fc/fc-26/news/pitch-notes-fc26-career-mode-deep-dive?utm_source=chatgpt.com "EA SPORTS FC 26 | Pitch Notes - Career Mode Deep Dive"

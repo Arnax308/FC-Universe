@@ -1,0 +1,26 @@
+{
+  "name": "web-parser",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "deploy": "next build && touch ./out/.nojekyll && gh-pages -d out",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "buffer": "^6.0.3",
+    "next": "15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "xml2js": "^0.6.2"
+  },
+  "author": {
+    "email": "gioac96@gmail.com",
+    "name": "Giorgio Acquati"
+  },
+  "devDependencies": {
+    "gh-pages": "^6.3.0"
+  }
+}
