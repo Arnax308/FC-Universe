@@ -11,12 +11,12 @@ router = APIRouter(tags=["transfers"])
 
 
 @router.get("/careers/{career_id}/transfers", response_model=list[TransferOut])
-def list_transfers(career_id: int, skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_transfers(career_id: int, skip: int = 0, limit: int = 100, club_id: int | None = None, db: Session = Depends(get_db)):
     """List all player transfers for a specific career."""
     from_club = aliased(Club)
     to_club = aliased(Club)
     
-    results = (
+    query = (
         db.query(
             Transfer.id,
             Transfer.career_id,
@@ -38,6 +38,17 @@ def list_transfers(career_id: int, skip: int = 0, limit: int = 100, db: Session 
         .outerjoin(from_club, from_club.id == Transfer.from_club_id)
         .outerjoin(to_club, to_club.id == Transfer.to_club_id)
         .filter(Transfer.career_id == career_id)
+    )
+    
+    if club_id is not None:
+        target_club = db.query(Club).filter(Club.career_id == career_id, (Club.id == club_id) | (Club.game_id == club_id)).first()
+        if target_club:
+            query = query.filter((Transfer.from_club_id == target_club.id) | (Transfer.to_club_id == target_club.id))
+        else:
+            query = query.filter((Transfer.from_club_id == club_id) | (Transfer.to_club_id == club_id))
+
+    results = (
+        query
         .order_by(Transfer.created_at.desc())
         .offset(skip)
         .limit(limit)

@@ -26,3 +26,16 @@ class ClubOut(ClubBase):
     career_id: int
     created_at: datetime
     updated_at: datetime
+    manager_name: str | None = None
+    stadium_name: str | None = None
+    squad_count: int | None = 0
+    top_player_name: str | None = None
+    top_player_overall: int | None = None
+    transfers_count: int | None = 0
+    total_spent: int | None = 0
+    total_received: int | None = 0
+    net_spend: int | None = 0
+    historical_trophies: list[dict] | None = None
+    universe_trophies: list[dict] | None = None
+
+

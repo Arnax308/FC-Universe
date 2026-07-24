@@ -18,6 +18,7 @@ def list_players(
     search: str | None = None,
     gender: int | None = None,
     my_club: bool = False,
+    club_id: int | None = None,
     db: Session = Depends(get_db)
 ):
     """List players in a specific career."""
@@ -30,6 +31,13 @@ def list_players(
         .filter(Player.career_id == career_id)
     )
     
+    if club_id is not None:
+        target_club = db.query(Club).filter(Club.career_id == career_id, (Club.id == club_id) | (Club.game_id == club_id)).first()
+        if target_club:
+            query = query.filter(Player.current_club_id == target_club.id)
+        else:
+            query = query.filter(Player.current_club_id == club_id)
+
     if my_club:
         career_obj = db.query(Career).filter(Career.id == career_id).first()
         if career_obj and career_obj.team_id is not None:
