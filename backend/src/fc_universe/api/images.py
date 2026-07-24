@@ -46,6 +46,10 @@ async def _fetch_and_cache(cache_path: Path, urls: list[str]) -> Response:
     raise HTTPException(status_code=404, detail="Image not found")
 
 
+DEFAULT_PLAYER_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="#64748b"><circle cx="12" cy="8" r="4"/><path d="M12 14c-4.42 0-8 2.69-8 6v1h16v-1c0-3.31-3.58-6-8-6z"/></svg>"""
+DEFAULT_CLUB_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="#64748b"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-5.45 9-12V5l-9-4z"/></svg>"""
+
+
 @router.get("/images/player/{game_id}")
 async def get_player_image(game_id: int):
     cache_path = PLAYER_CACHE / f"{game_id}.png"
@@ -59,11 +63,8 @@ async def get_player_image(game_id: int):
     
     try:
         return await _fetch_and_cache(cache_path, urls)
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error fetching player image {game_id}: {e}")
-        raise HTTPException(status_code=500, detail="Error fetching image")
+    except Exception:
+        return Response(content=DEFAULT_PLAYER_SVG, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/images/club/{team_id}")
@@ -77,11 +78,8 @@ async def get_club_image(team_id: int):
     
     try:
         return await _fetch_and_cache(cache_path, urls)
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error fetching club image {team_id}: {e}")
-        raise HTTPException(status_code=404, detail="Image not found")
+    except Exception:
+        return Response(content=DEFAULT_CLUB_SVG, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
 
 
 TROPHY_CACHE = CACHE_DIR / "trophies"

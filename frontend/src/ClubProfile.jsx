@@ -353,12 +353,12 @@ export default function ClubProfile() {
           </div>
 
           {/* In-Universe Trophies Section */}
-          {universeTrophies.length > 0 && (
-            <div className="space-y-4">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <span className="material-symbols-outlined text-emerald-400 text-xl">auto_awesome</span>
-                In-Universe Honors (Current Career Save)
-              </h3>
+          <div className="space-y-4">
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <span className="material-symbols-outlined text-emerald-400 text-xl">auto_awesome</span>
+              In-Universe Honors (Current Career Save)
+            </h3>
+            {universeTrophies.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {universeTrophies.map((t, idx) => (
                   <div key={idx} className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
@@ -373,8 +373,13 @@ export default function ClubProfile() {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5 text-slate-400 text-xs italic flex items-center gap-3">
+                <span className="material-symbols-outlined text-slate-500">emoji_events</span>
+                <span>No trophies won in this career save yet for {clubName}. Win league titles or cups in-game to populate your career silverware!</span>
+              </div>
+            )}
+          </div>
 
           {/* All-Time Historical Silverware */}
           <div className="space-y-4">
