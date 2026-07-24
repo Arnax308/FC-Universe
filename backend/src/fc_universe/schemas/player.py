@@ -70,3 +70,5 @@ class PlayerOut(PlayerBase):
     is_retired: bool | None = False
     created_at: datetime
     updated_at: datetime
+    trophies: list[dict] | None = None
+

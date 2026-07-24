@@ -82,3 +82,27 @@ async def get_club_image(team_id: int):
     except Exception as e:
         print(f"Error fetching club image {team_id}: {e}")
         raise HTTPException(status_code=404, detail="Image not found")
+
+
+TROPHY_CACHE = CACHE_DIR / "trophies"
+TROPHY_CACHE.mkdir(parents=True, exist_ok=True)
+
+
+@router.get("/images/trophy/{name}")
+async def get_trophy_image(name: str):
+    cache_path = TROPHY_CACHE / f"{name}.png"
+    if cache_path.exists():
+        return FileResponse(
+            path=str(cache_path),
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=604800"}
+        )
+    asset_path = Path(__file__).parent.parent.parent.parent / "frontend" / "public" / "assets" / "trophies" / f"{name}.png"
+    if asset_path.exists():
+        return FileResponse(
+            path=str(asset_path),
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=604800"}
+        )
+    raise HTTPException(status_code=404, detail="Trophy image not found")
+

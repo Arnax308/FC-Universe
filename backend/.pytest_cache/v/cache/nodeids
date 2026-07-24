@@ -1,0 +1,4 @@
+[
+  "tests/test_fbchunks_parser.py::test_fc_metadata_exposes_the_team_and_manager_id_offsets",
+  "tests/test_fbchunks_parser.py::test_manager_club_is_resolved_from_normalized_ids"
+]

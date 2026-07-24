@@ -35,7 +35,7 @@ def list_clubs(
 def get_club(career_id: int, club_id: int, db: Session = Depends(get_db)):
     """Get details of a specific club with dynamic manager, squad, and financial statistics."""
     from fastapi import HTTPException
-    from fc_universe.models import Career, Manager, Player, Transfer
+    from fc_universe.models import Career, Manager, Player, Transfer, TimelineEvent
     
     club = db.query(Club).filter(Club.career_id == career_id, Club.id == club_id).first()
     if not club:
@@ -103,65 +103,65 @@ def get_club(career_id: int, club_id: int, db: Session = Depends(get_db)):
     # 5. Historical All-Time Trophies Database
     HISTORICAL_TROPHIES_MAP = {
         "Real Madrid": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 15, "category": "Continental"},
-            {"name": "La Liga", "icon": "🥇", "count": 36, "category": "Domestic League"},
-            {"name": "Copa del Rey", "icon": "👑", "count": 20, "category": "Domestic Cup"},
-            {"name": "FIFA Club World Cup", "icon": "🌍", "count": 5, "category": "World"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 15, "category": "Continental"},
+            {"name": "La Liga", "icon": "/assets/trophies/league.png", "count": 36, "category": "Domestic League"},
+            {"name": "Copa del Rey", "icon": "/assets/trophies/cup.png", "count": 20, "category": "Domestic Cup"},
+            {"name": "FIFA Club World Cup", "icon": "/assets/trophies/ucl.png", "count": 5, "category": "World"}
         ],
         "Barcelona": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 5, "category": "Continental"},
-            {"name": "La Liga", "icon": "🥇", "count": 27, "category": "Domestic League"},
-            {"name": "Copa del Rey", "icon": "👑", "count": 31, "category": "Domestic Cup"},
-            {"name": "FIFA Club World Cup", "icon": "🌍", "count": 3, "category": "World"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 5, "category": "Continental"},
+            {"name": "La Liga", "icon": "/assets/trophies/league.png", "count": 27, "category": "Domestic League"},
+            {"name": "Copa del Rey", "icon": "/assets/trophies/cup.png", "count": 31, "category": "Domestic Cup"},
+            {"name": "FIFA Club World Cup", "icon": "/assets/trophies/ucl.png", "count": 3, "category": "World"}
         ],
         "Bayern": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 6, "category": "Continental"},
-            {"name": "Bundesliga", "icon": "🥇", "count": 33, "category": "Domestic League"},
-            {"name": "DFB-Pokal", "icon": "👑", "count": 20, "category": "Domestic Cup"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 6, "category": "Continental"},
+            {"name": "Bundesliga", "icon": "/assets/trophies/league.png", "count": 33, "category": "Domestic League"},
+            {"name": "DFB-Pokal", "icon": "/assets/trophies/cup.png", "count": 20, "category": "Domestic Cup"}
         ],
         "Manchester City": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 1, "category": "Continental"},
-            {"name": "Premier League", "icon": "🥇", "count": 10, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "👑", "count": 7, "category": "Domestic Cup"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 1, "category": "Continental"},
+            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 10, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 7, "category": "Domestic Cup"}
         ],
         "Manchester United": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 3, "category": "Continental"},
-            {"name": "Premier League", "icon": "🥇", "count": 20, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "👑", "count": 13, "category": "Domestic Cup"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 3, "category": "Continental"},
+            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 20, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 13, "category": "Domestic Cup"}
         ],
         "Liverpool": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 6, "category": "Continental"},
-            {"name": "Premier League", "icon": "🥇", "count": 19, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "👑", "count": 8, "category": "Domestic Cup"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 6, "category": "Continental"},
+            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 19, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 8, "category": "Domestic Cup"}
         ],
         "Arsenal": [
-            {"name": "Premier League", "icon": "🥇", "count": 13, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "👑", "count": 14, "category": "Domestic Cup"},
-            {"name": "Community Shield", "icon": "🛡️", "count": 17, "category": "Domestic Cup"}
+            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 13, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 14, "category": "Domestic Cup"},
+            {"name": "Community Shield", "icon": "/assets/trophies/cup.png", "count": 17, "category": "Domestic Cup"}
         ],
         "Chelsea": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 2, "category": "Continental"},
-            {"name": "Premier League", "icon": "🥇", "count": 6, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "👑", "count": 8, "category": "Domestic Cup"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 2, "category": "Continental"},
+            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 6, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 8, "category": "Domestic Cup"}
         ],
         "Milan": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 7, "category": "Continental"},
-            {"name": "Serie A", "icon": "🥇", "count": 19, "category": "Domestic League"},
-            {"name": "Coppa Italia", "icon": "👑", "count": 5, "category": "Domestic Cup"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 7, "category": "Continental"},
+            {"name": "Serie A", "icon": "/assets/trophies/league.png", "count": 19, "category": "Domestic League"},
+            {"name": "Coppa Italia", "icon": "/assets/trophies/cup.png", "count": 5, "category": "Domestic Cup"}
         ],
         "Inter": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 3, "category": "Continental"},
-            {"name": "Serie A", "icon": "🥇", "count": 20, "category": "Domestic League"},
-            {"name": "Coppa Italia", "icon": "👑", "count": 9, "category": "Domestic Cup"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 3, "category": "Continental"},
+            {"name": "Serie A", "icon": "/assets/trophies/league.png", "count": 20, "category": "Domestic League"},
+            {"name": "Coppa Italia", "icon": "/assets/trophies/cup.png", "count": 9, "category": "Domestic Cup"}
         ],
         "Juventus": [
-            {"name": "UEFA Champions League", "icon": "🏆", "count": 2, "category": "Continental"},
-            {"name": "Serie A", "icon": "🥇", "count": 36, "category": "Domestic League"},
-            {"name": "Coppa Italia", "icon": "👑", "count": 15, "category": "Domestic Cup"}
+            {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 2, "category": "Continental"},
+            {"name": "Serie A", "icon": "/assets/trophies/league.png", "count": 36, "category": "Domestic League"},
+            {"name": "Coppa Italia", "icon": "/assets/trophies/cup.png", "count": 15, "category": "Domestic Cup"}
         ],
         "Paris": [
-            {"name": "Ligue 1", "icon": "🥇", "count": 12, "category": "Domestic League"},
-            {"name": "Coupe de France", "icon": "👑", "count": 15, "category": "Domestic Cup"}
+            {"name": "Ligue 1", "icon": "/assets/trophies/league.png", "count": 12, "category": "Domestic League"},
+            {"name": "Coupe de France", "icon": "/assets/trophies/cup.png", "count": 15, "category": "Domestic Cup"}
         ]
     }
 
@@ -176,20 +176,34 @@ def get_club(career_id: int, club_id: int, db: Session = Depends(get_db)):
         intl_p = club.international_prestige or 5
         hist_trophies = []
         if dom_p > 5:
-            hist_trophies.append({"name": "Domestic League Titles", "icon": "🥇", "count": int(dom_p * 1.5), "category": "Domestic"})
+            hist_trophies.append({"name": "Domestic League Titles", "icon": "/assets/trophies/league.png", "count": int(dom_p * 1.5), "category": "Domestic"})
         if dom_p > 3:
-            hist_trophies.append({"name": "Domestic Cup Titles", "icon": "👑", "count": int(dom_p * 1.2), "category": "Domestic Cup"})
+            hist_trophies.append({"name": "Domestic Cup Titles", "icon": "/assets/trophies/cup.png", "count": int(dom_p * 1.2), "category": "Domestic Cup"})
         if intl_p > 7:
-            hist_trophies.append({"name": "Continental Titles", "icon": "🏆", "count": int(intl_p // 3), "category": "Continental"})
+            hist_trophies.append({"name": "Continental Titles", "icon": "/assets/trophies/ucl.png", "count": int(intl_p // 3), "category": "Continental"})
 
-    # 6. In-Universe Trophies Won (from Awards/Events during save)
+    # 6. In-Universe Trophies Won for this specific club
     univ_trophies = []
-    if career_obj and career_obj.team_id == club.game_id:
-        # Check awards in this career
-        from fc_universe.models import Award
-        mgr_awards = db.query(Award).filter(Award.career_id == career_id).all()
-        if len(mgr_awards) > 0:
-            univ_trophies.append({"name": "Manager & Club Awards", "icon": "🏆", "count": len(mgr_awards), "category": "In-Universe"})
+    club_events = db.query(TimelineEvent).filter(
+        TimelineEvent.career_id == career_id,
+        TimelineEvent.event_type == "trophy"
+    ).all()
+    
+    matching_events = [
+        e for e in club_events 
+        if e.related_club_id == club.id or (club.game_id and e.related_club_id == club.game_id) or (club.name and club.name.lower() in e.description.lower())
+    ]
+    
+    if len(matching_events) > 0:
+        for me in matching_events:
+            desc = me.description
+            icon = "/assets/trophies/ucl.png" if "Champions League" in desc else "/assets/trophies/league.png"
+            univ_trophies.append({
+                "name": desc,
+                "icon": icon,
+                "count": 1,
+                "category": "In-Universe Career"
+            })
 
     return {
         "id": club.id,

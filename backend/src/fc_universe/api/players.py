@@ -73,11 +73,56 @@ def list_players(
 
 @router.get("/careers/{career_id}/players/{player_id}", response_model=PlayerOut)
 def get_player(career_id: int, player_id: int, db: Session = Depends(get_db)):
-    """Get a specific player in a career."""
+    """Get a specific player in a career with detailed stats and trophy cabinet."""
     player = db.query(Player).filter(Player.career_id == career_id, Player.id == player_id).first()
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
-    return player
+        
+    # Get club name
+    club_name = None
+    if player.current_club_id:
+        club_obj = db.query(Club).filter(Club.id == player.current_club_id).first()
+        if club_obj:
+            club_name = club_obj.name
+    
+    player_club_name = club_name or "Free Agent"
+
+    # Build trophy cabinet
+    player_trophies = []
+    
+    # 1. Individual Player Awards
+    indiv_awards = db.query(Award).filter(Award.career_id == career_id, Award.player_id == player.id).all()
+    for aw in indiv_awards:
+        icon_path = "/assets/trophies/ballondor.png" if "Ballon" in aw.name else "/assets/trophies/cup.png"
+        player_trophies.append({
+            "name": aw.name,
+            "type": "Individual Award",
+            "icon": icon_path,
+            "count": 1
+        })
+        
+    # 2. Team Trophies won by player's current club in-universe
+    if player.current_club_id:
+        club_trophy_events = db.query(TimelineEvent).filter(
+            TimelineEvent.career_id == career_id,
+            TimelineEvent.event_type == "trophy",
+            TimelineEvent.related_club_id == player.current_club_id
+        ).all()
+        
+        for te in club_trophy_events:
+            desc = te.description
+            icon_path = "/assets/trophies/ucl.png" if "Champions League" in desc else "/assets/trophies/league.png"
+            player_trophies.append({
+                "name": desc,
+                "type": "Team Silverware",
+                "icon": icon_path,
+                "count": 1
+            })
+
+    player_dict = {c.name: getattr(player, c.name) for c in player.__table__.columns}
+    player_dict["club_name"] = player_club_name
+    player_dict["trophies"] = player_trophies
+    return player_dict
 
 
 POS_KEY_STATS = {
