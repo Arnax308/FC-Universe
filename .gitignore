@@ -47,3 +47,10 @@ pytest-cache-files-*/
 *.njsproj
 *.sln
 *.sw?
+
+# Documentation & spec files
+architecture_overview.md
+development-roadmap.txt
+prompt.md
+tech.txt
+
