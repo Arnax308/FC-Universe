@@ -17,11 +17,13 @@ export default function ClubProfile() {
     if (career && career.id && id) {
       setLoading(true);
       
-      // Fetch club details with dynamic stats
+      // Fetch dynamic club details
       const p1 = fetch(`/api/careers/${career.id}/clubs/${id}`)
         .then(res => res.json())
         .then(data => {
-          if (data && data.id) setClub(data);
+          if (data && (data.id || data.name)) {
+            setClub(data);
+          }
         })
         .catch(err => console.error("Failed to fetch club details:", err));
 
@@ -63,7 +65,7 @@ export default function ClubProfile() {
     return (
       <div className="flex flex-col items-center justify-center py-24">
         <div className="w-12 h-12 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin mb-4 shadow-[0_0_20px_rgba(78,222,163,0.3)]"></div>
-        <p className="text-slate-400 text-xs font-mono uppercase tracking-widest">Loading Club Profile...</p>
+        <p className="text-slate-400 text-xs font-mono uppercase tracking-widest">Loading Club Data...</p>
       </div>
     );
   }
@@ -73,15 +75,20 @@ export default function ClubProfile() {
   const leagueName = club?.league || "Unassigned League";
   const managerName = club?.manager_name || "Manager";
 
-  // Calculate dynamic stats from squad
+  // Dynamic calculations from squad
   const topPlayer = squad.length > 0 ? [...squad].sort((a, b) => (b.overall || 0) - (a.overall || 0))[0] : null;
   const avgOverall = squad.length > 0 ? (squad.reduce((acc, p) => acc + (p.overall || 0), 0) / squad.length).toFixed(1) : (club?.overall_rating || "-");
 
-  // Calculate net spend from transfers
+  // Dynamic net spend
   const netSpendEur = club?.net_spend !== undefined ? club.net_spend : 0;
   const formattedNetSpend = netSpendEur >= 0 
     ? `€${(netSpendEur / 1000000).toFixed(1)}M Spent` 
     : `€${(Math.abs(netSpendEur) / 1000000).toFixed(1)}M Profit`;
+
+  // Trophies lists
+  const historicalTrophies = club?.historical_trophies || [];
+  const universeTrophies = club?.universe_trophies || [];
+  const totalHistoricalCount = historicalTrophies.reduce((sum, t) => sum + (t.count || 0), 0);
 
   return (
     <div className="w-full max-w-7xl mx-auto py-2 px-2 sm:px-4 space-y-6">
@@ -111,12 +118,18 @@ export default function ClubProfile() {
           <div className="flex items-end gap-5">
             {/* Club Logo Crest */}
             <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-black/60 border-2 border-white/20 p-2 flex items-center justify-center backdrop-blur-xl shadow-2xl flex-shrink-0">
-              <img 
-                src={getLogoUrl(club?.game_id)} 
-                alt={clubName} 
-                className="w-full h-full object-contain drop-shadow-xl"
-                onError={(e) => { e.target.style.display = 'none'; }}
-              />
+              {club?.game_id ? (
+                <img 
+                  src={getLogoUrl(club.game_id)} 
+                  alt={clubName} 
+                  className="w-full h-full object-contain drop-shadow-xl"
+                  onError={(e) => { 
+                    e.target.style.display = 'none'; 
+                    if (e.target.nextSibling) e.target.nextSibling.style.display = 'block';
+                  }}
+                />
+              ) : null}
+              <span className="material-symbols-outlined text-slate-400 text-5xl hidden">shield</span>
             </div>
 
             {/* Club Info */}
@@ -157,6 +170,7 @@ export default function ClubProfile() {
       <div className="flex items-center gap-2 overflow-x-auto border-b border-white/10 pb-2 scrollbar-none">
         {[
           'OVERVIEW',
+          'TROPHY CABINET',
           'CURRENT SQUAD',
           'TRANSFERS',
           'STATISTICS'
@@ -232,7 +246,7 @@ export default function ClubProfile() {
               {/* Total Squad Count Card */}
               <div className="bg-[#12161f]/80 border border-white/10 rounded-2xl p-5 flex items-center justify-between shadow-xl">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Registered Players</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Registered Squad</p>
                   <p className="text-2xl font-black text-white mt-1">{squad.length} Players</p>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
@@ -242,8 +256,35 @@ export default function ClubProfile() {
             </div>
           </div>
 
-          {/* Right Column: Dynamic Transfers Summary & Quick Roster */}
+          {/* Right Column: Trophy Summary & Recent Transfers */}
           <div className="space-y-6">
+            {/* Trophy Cabinet Highlights Card */}
+            <div 
+              onClick={() => setActiveTab('TROPHY CABINET')}
+              className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 hover:border-amber-500/40 rounded-3xl p-6 shadow-xl space-y-4 cursor-pointer transition-all group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🏆</span>
+                  <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">Trophy Cabinet</h3>
+                </div>
+                <span className="text-xs text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
+                  {totalHistoricalCount} Silverware
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                {historicalTrophies.slice(0, 4).map((t, idx) => (
+                  <div key={idx} className="bg-white/[0.03] border border-white/5 rounded-xl p-2.5 text-center">
+                    <p className="text-base">{t.icon || "🏆"}</p>
+                    <p className="text-lg font-black text-amber-400 mt-0.5">{t.count}x</p>
+                    <p className="text-[10px] text-slate-400 truncate">{t.name}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Recent Transfers Summary */}
             <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
               <h3 className="text-xl font-bold text-white flex items-center gap-2">
                 <span className="material-symbols-outlined text-emerald-400 text-lg">swap_horiz</span>
@@ -253,7 +294,7 @@ export default function ClubProfile() {
               {transfers.length === 0 ? (
                 <p className="text-xs text-slate-500 py-6 text-center italic">No transfer records logged for {clubName}.</p>
               ) : (
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                   {transfers.slice(0, 5).map(t => (
                     <div key={t.id} className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs">
                       <div className="min-w-0 pr-2">
@@ -274,7 +315,89 @@ export default function ClubProfile() {
         </div>
       )}
 
-      {/* TAB 2: CURRENT SQUAD */}
+      {/* TAB 2: TROPHY CABINET */}
+      {activeTab === 'TROPHY CABINET' && (
+        <div className="space-y-8">
+          {/* Header Banner for Silverware */}
+          <div className="relative rounded-3xl p-8 bg-gradient-to-r from-amber-950/40 via-[#161b22] to-slate-900 border border-amber-500/20 shadow-2xl overflow-hidden flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div className="space-y-2 text-center sm:text-left">
+              <span className="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold uppercase tracking-widest">
+                HALL OF CHAMPIONS
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+                {clubName} Trophy Cabinet
+              </h2>
+              <p className="text-slate-400 text-sm max-w-xl">
+                All-time historical silverware and honours won by {clubName} both historically and in your FC Universe save.
+              </p>
+            </div>
+            
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-center min-w-[140px]">
+              <span className="text-3xl">🏆</span>
+              <p className="text-3xl font-black text-amber-400 mt-1">{totalHistoricalCount}</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Trophies</p>
+            </div>
+          </div>
+
+          {/* In-Universe Trophies Section */}
+          {universeTrophies.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <span className="material-symbols-outlined text-emerald-400 text-xl">auto_awesome</span>
+                In-Universe Honors (Current Career Save)
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {universeTrophies.map((t, idx) => (
+                  <div key={idx} className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+                    <div>
+                      <p className="text-base font-bold text-white">{t.name}</p>
+                      <p className="text-xs text-emerald-400 font-medium mt-0.5">{t.category}</p>
+                    </div>
+                    <span className="text-3xl font-black text-emerald-400">{t.count}x</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* All-Time Historical Silverware */}
+          <div className="space-y-4">
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <span>👑</span>
+              All-Time Historical Silverware
+            </h3>
+
+            {historicalTrophies.length === 0 ? (
+              <p className="text-slate-500 text-sm italic">No historical trophy records found.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {historicalTrophies.map((t, idx) => (
+                  <div 
+                    key={idx}
+                    className="bg-[#12161f]/80 border border-white/10 hover:border-amber-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow-xl transition-all hover:-translate-y-1 group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-4xl group-hover:scale-110 transition-transform">{t.icon || "🏆"}</span>
+                      <span className="text-2xl font-black text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-xl">
+                        {t.count}x
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 className="text-base font-bold text-white group-hover:text-amber-400 transition-colors">
+                        {t.name}
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-0.5">{t.category}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: CURRENT SQUAD */}
       {activeTab === 'CURRENT SQUAD' && (
         <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
@@ -320,7 +443,7 @@ export default function ClubProfile() {
         </div>
       )}
 
-      {/* TAB 3: TRANSFERS */}
+      {/* TAB 4: TRANSFERS */}
       {activeTab === 'TRANSFERS' && (
         <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
           <h3 className="text-xl font-bold text-white">Transfer Logs ({transfers.length})</h3>
@@ -346,7 +469,7 @@ export default function ClubProfile() {
         </div>
       )}
 
-      {/* TAB 4: STATISTICS */}
+      {/* TAB 5: STATISTICS */}
       {activeTab === 'STATISTICS' && (
         <div className="bg-[#12161f]/80 border border-white/10 rounded-3xl p-8 shadow-xl space-y-6">
           <h3 className="text-xl font-bold text-white">Squad Statistics Breakdown</h3>
