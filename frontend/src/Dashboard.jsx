@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
+import Careers from './Careers';
 
 export default function Dashboard() {
   const { career, refreshCareers, setIsImporting, setImportMessage, isImporting: globalImporting } = useOutletContext();
@@ -139,122 +140,7 @@ export default function Dashboard() {
 
   // If no career exists, display the import dashboard
   if (!career) {
-    return (
-      <div className="w-full max-w-4xl mx-auto py-8">
-        <div className="text-center mb-12">
-          <h1 className="text-headline-lg font-headline-md text-primary font-black tracking-tight mb-3">Welcome to FC Universe</h1>
-          <p className="text-body-lg text-on-surface-variant max-w-xl mx-auto">
-            EA SPORTS FC 26 Career Mode history tracking and database archiver. Import a local save file to begin mapping player stats, transfers, awards, and historical timelines.
-          </p>
-        </div>
-
-        {importStatus.message && (
-          <div className={`mb-8 p-5 rounded-2xl border flex items-center gap-4 backdrop-blur-xl ${
-            importStatus.success === true 
-              ? 'bg-primary/10 border-primary/20 text-primary shadow-[0_0_20px_rgba(78,222,163,0.1)]' 
-              : importStatus.success === false
-              ? 'bg-error/10 border-error/20 text-error shadow-[0_0_20px_rgba(255,180,171,0.1)]'
-              : 'bg-tertiary-fixed-dim/10 border-tertiary-fixed-dim/20 text-tertiary-fixed-dim'
-          }`}>
-            {importing ? (
-              <div className="w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-            ) : (
-              <span className="material-symbols-outlined text-2xl">
-                {importStatus.success === true ? 'check_circle' : importStatus.success === false ? 'error' : 'info'}
-              </span>
-            )}
-            <span className="text-body-md font-bold">{importStatus.message}</span>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
-          {/* Detect Saves */}
-          <div className="glass-panel border border-white/5 rounded-3xl p-6 relative overflow-hidden flex flex-col justify-between">
-            <div>
-              <h2 className="text-headline-md font-headline-md text-on-surface mb-3 flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary">explore</span>
-                Auto-Detected Saves
-              </h2>
-              <p className="text-body-md text-on-surface-variant mb-6">We scanned your local EA SPORTS FC 26 settings folder. Select a save file below to load the universe data.</p>
-              
-              {loadingSaves ? (
-                <div className="flex justify-center py-10">
-                  <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin"></div>
-                </div>
-              ) : localSaves.length === 0 ? (
-                <div className="py-8 text-center text-on-surface-variant/60 text-body-md">
-                  No local Career Mode saves found. Check settings folder.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {localSaves.map(save => (
-                    <div key={save.save_identifier} className="bg-surface-container/40 border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-3 hover:bg-white/5 transition-colors group">
-                      <div className="min-w-0">
-                        <div className="flex justify-between items-start gap-2">
-                          <h4 className="text-body-md font-bold text-on-surface truncate group-hover:text-primary transition-colors">{save.name || "Career Save"}</h4>
-                          <span className="text-[10px] bg-white/5 text-on-surface-variant font-semibold px-2 py-0.5 rounded-full border border-white/10">{save.filename}</span>
-                        </div>
-                        <p className="text-[11px] text-on-surface-variant mt-1">Manager: <span className="text-on-surface font-semibold">{save.manager_name || "Unknown"}</span> • Team: <span className="text-primary font-semibold">{save.team_name || "Unknown"}</span></p>
-                        <p className="text-[10px] text-on-surface-variant/50 mt-1">Modified: {formatDate(save.modified_at)} • Size: {save.size_kb} KB</p>
-                      </div>
-                      <button
-                        onClick={() => handleImport(save.path)}
-                        disabled={importing}
-                        className="w-full py-2 rounded-xl bg-primary text-on-primary font-label-caps font-bold transition-all duration-300 flex items-center justify-center gap-2 text-xs shadow-lg hover:shadow-primary/30"
-                      >
-                        <span className="material-symbols-outlined text-sm">arrow_right_alt</span>
-                        Import Save
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Manual Import & Offset Settings */}
-          <div className="space-y-6">
-            <div className="glass-panel border border-white/5 rounded-3xl p-6">
-              <h2 className="text-headline-md font-headline-md text-on-surface mb-3 flex items-center gap-2">
-                <span className="material-symbols-outlined text-tertiary">folder_open</span>
-                Manual File Import
-              </h2>
-              <p className="text-body-md text-on-surface-variant mb-6">Enter the absolute file path of your career save settings file (e.g. `CmMgrC...`).</p>
-              
-              <div className="space-y-4">
-                <input
-                  type="text"
-                  placeholder="C:\Users\...\CmMgrC20260716010411406"
-                  value={manualPath}
-                  onChange={(e) => setManualPath(e.target.value)}
-                  className="w-full bg-surface-container/50 border border-white/10 rounded-xl px-4 py-3 text-body-md text-on-surface placeholder:text-on-surface-variant/30 focus:outline-none focus:border-primary/50"
-                />
-                
-                <div className="flex items-center justify-between border-t border-white/5 pt-4">
-                  <label className="text-body-md text-on-surface-variant font-bold">Team ID Offset Index:</label>
-                  <select 
-                    value={teamOffset} 
-                    onChange={(e) => setTeamOffset(parseInt(e.target.value))}
-                    className="bg-surface-container border border-white/10 rounded-xl px-3 py-1.5 text-body-md text-on-surface"
-                  >
-                    <option value={1}>1 (Recommended/Default)</option>
-                    <option value={0}>0 (Legacy)</option>
-                  </select>
-                </div>
-                
-                <button
-                  onClick={() => handleImport(manualPath)}
-                  disabled={importing || !manualPath}
-                  className="w-full py-3 rounded-xl bg-white/5 border border-white/10 hover:border-primary/30 text-on-surface font-label-caps font-bold transition-all disabled:opacity-50"
-                >
-                  Import Manually
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <Careers />;
   }
 
   // Active Career Dashboard overview

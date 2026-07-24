@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './Layout'
 import Dashboard from './Dashboard'
+import Careers from './Careers'
 import Players from './Players'
 import PlayerProfile from './PlayerProfile'
 import Clubs from './Clubs'
@@ -13,7 +14,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
-          <Route path="careers" element={<Dashboard />} />
+          <Route path="careers" element={<Careers />} />
           <Route path="players" element={<Players />} />
           <Route path="players/:id" element={<PlayerProfile />} />
           <Route path="clubs" element={<Clubs />} />

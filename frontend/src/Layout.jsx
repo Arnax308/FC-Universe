@@ -124,6 +124,11 @@ export default function Layout() {
             <span className="text-label-caps font-label-caps tracking-wider">Dashboard</span>
           </NavLink>
           
+          <NavLink to="/careers" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
+            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">public</span>
+            <span className="text-label-caps font-label-caps tracking-wider">Universes</span>
+          </NavLink>
+
           <NavLink to="/players" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
             <span className="material-symbols-outlined group-hover:scale-110 transition-transform">groups</span>
             <span className="text-label-caps font-label-caps tracking-wider">Players</span>
@@ -213,6 +218,16 @@ export default function Layout() {
                   {careers.length === 0 && (
                     <p className="text-xs text-on-surface-variant px-3 py-4 text-center">No universes imported.</p>
                   )}
+                </div>
+                <div className="border-t border-white/10 pt-1.5 mt-1 px-1">
+                  <NavLink 
+                    to="/careers" 
+                    onClick={() => setDropdownOpen(false)}
+                    className="w-full text-center py-2 rounded-xl bg-white/5 hover:bg-primary/20 hover:text-primary text-xs font-bold text-on-surface transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <span className="material-symbols-outlined text-sm">public</span>
+                    Manage Universes
+                  </NavLink>
                 </div>
               </div>
             )}

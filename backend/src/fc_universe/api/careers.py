@@ -17,10 +17,51 @@ router = APIRouter(tags=["careers"])
 
 @router.get("/careers", response_model=APIResponse[list[CareerOut]])
 def list_careers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """List all imported careers."""
+    """List all imported careers with rich metadata for universe selection."""
     repo = CareerRepository(db)
     careers = repo.get_all(skip=skip, limit=limit)
-    return {"success": True, "data": careers}
+    
+    res = []
+    for idx, c in enumerate(careers):
+        seasons = c.seasons or []
+        season_years = [s.year for s in seasons if s.year]
+        if season_years:
+            start_yr = min(season_years)
+            max_yr = max(season_years)
+            current_season_str = f"{max_yr}/{(max_yr+1)%100:02d}"
+            dur_num = max(1, max_yr - start_yr + 1)
+            duration_str = f"{dur_num} Year" + ("s" if dur_num > 1 else "")
+        else:
+            current_season_str = "2025/26"
+            duration_str = "1 Year"
+
+        awards = c.awards or []
+        trophies_count = len(awards)
+        
+        honours = []
+        if trophies_count > 0:
+            honours.append({"icon": "🏆", "count": trophies_count})
+
+        c_dict = {
+            "id": c.id,
+            "name": c.name,
+            "save_identifier": c.save_identifier,
+            "game_version": c.game_version,
+            "manager_name": c.manager_name,
+            "team_name": c.team_name,
+            "team_id": c.team_id,
+            "save_file_path": c.save_file_path,
+            "created_at": c.created_at,
+            "updated_at": c.updated_at,
+            "current_season": current_season_str,
+            "duration_years": duration_str,
+            "trophies_count": trophies_count,
+            "trophies_summary": honours,
+            "is_last_played": idx == 0
+        }
+        res.append(c_dict)
+
+    return {"success": True, "data": res}
 
 
 @router.get("/careers/local-saves")
