@@ -4,6 +4,7 @@ import Careers from './Careers'
 import Players from './Players'
 import PlayerProfile from './PlayerProfile'
 import Clubs from './Clubs'
+import ClubProfile from './ClubProfile'
 import Transfers from './Transfers'
 import Timeline from './Timeline'
 
@@ -17,6 +18,7 @@ function App() {
           <Route path="players" element={<Players />} />
           <Route path="players/:id" element={<PlayerProfile />} />
           <Route path="clubs" element={<Clubs />} />
+          <Route path="clubs/:id" element={<ClubProfile />} />
           <Route path="transfers" element={<Transfers />} />
           <Route path="timeline" element={<Timeline />} />
           <Route path="*" element={<div className="p-8 text-on-surface">Screen not found.</div>} />
