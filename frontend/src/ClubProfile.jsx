@@ -88,7 +88,21 @@ export default function ClubProfile() {
   // Trophies lists
   const historicalTrophies = club?.historical_trophies || [];
   const universeTrophies = club?.universe_trophies || [];
-  const totalHistoricalCount = historicalTrophies.reduce((sum, t) => sum + (t.count || 0), 0);
+  const totalHistoricalCount = historicalTrophies.reduce((sum, t) => sum + (t.count || 0), 0) + universeTrophies.reduce((sum, t) => sum + (t.count || 0), 0);
+
+  const renderTrophyIcon = (iconPath, name) => {
+    if (iconPath && iconPath.startsWith('/')) {
+      return (
+        <img 
+          src={iconPath} 
+          alt={name} 
+          className="w-10 h-10 object-contain drop-shadow-lg group-hover:scale-110 transition-transform" 
+          onError={(e) => { e.target.style.display = 'none'; if (e.target.nextSibling) e.target.nextSibling.style.display = 'inline-block'; }}
+        />
+      );
+    }
+    return <span className="text-3xl">🏆</span>;
+  };
 
   return (
     <div className="w-full max-w-7xl mx-auto py-2 px-2 sm:px-4 space-y-6">
@@ -265,7 +279,7 @@ export default function ClubProfile() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">🏆</span>
+                  <img src="/assets/trophies/ucl.png" alt="Trophy" className="w-6 h-6 object-contain" />
                   <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">Trophy Cabinet</h3>
                 </div>
                 <span className="text-xs text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
@@ -275,10 +289,10 @@ export default function ClubProfile() {
 
               <div className="grid grid-cols-2 gap-2 pt-1">
                 {historicalTrophies.slice(0, 4).map((t, idx) => (
-                  <div key={idx} className="bg-white/[0.03] border border-white/5 rounded-xl p-2.5 text-center">
-                    <p className="text-base">{t.icon || "🏆"}</p>
-                    <p className="text-lg font-black text-amber-400 mt-0.5">{t.count}x</p>
-                    <p className="text-[10px] text-slate-400 truncate">{t.name}</p>
+                  <div key={idx} className="bg-white/[0.03] border border-white/5 rounded-xl p-2.5 text-center flex flex-col items-center">
+                    {renderTrophyIcon(t.icon, t.name)}
+                    <p className="text-lg font-black text-amber-400 mt-1">{t.count}x</p>
+                    <p className="text-[10px] text-slate-400 truncate w-full">{t.name}</p>
                   </div>
                 ))}
               </div>
@@ -332,8 +346,8 @@ export default function ClubProfile() {
               </p>
             </div>
             
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-center min-w-[140px]">
-              <span className="text-3xl">🏆</span>
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-center min-w-[140px] flex flex-col items-center">
+              <img src="/assets/trophies/ucl.png" alt="Trophy" className="w-12 h-12 object-contain" />
               <p className="text-3xl font-black text-amber-400 mt-1">{totalHistoricalCount}</p>
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Trophies</p>
             </div>
@@ -349,9 +363,12 @@ export default function ClubProfile() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {universeTrophies.map((t, idx) => (
                   <div key={idx} className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
-                    <div>
-                      <p className="text-base font-bold text-white">{t.name}</p>
-                      <p className="text-xs text-emerald-400 font-medium mt-0.5">{t.category}</p>
+                    <div className="flex items-center gap-3">
+                      {renderTrophyIcon(t.icon, t.name)}
+                      <div>
+                        <p className="text-base font-bold text-white">{t.name}</p>
+                        <p className="text-xs text-emerald-400 font-medium mt-0.5">{t.category}</p>
+                      </div>
                     </div>
                     <span className="text-3xl font-black text-emerald-400">{t.count}x</span>
                   </div>
@@ -363,7 +380,7 @@ export default function ClubProfile() {
           {/* All-Time Historical Silverware */}
           <div className="space-y-4">
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              <span>👑</span>
+              <img src="/assets/trophies/league.png" alt="Silverware" className="w-6 h-6 object-contain" />
               All-Time Historical Silverware
             </h3>
 
@@ -377,7 +394,7 @@ export default function ClubProfile() {
                     className="bg-[#12161f]/80 border border-white/10 hover:border-amber-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow-xl transition-all hover:-translate-y-1 group"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-4xl group-hover:scale-110 transition-transform">{t.icon || "🏆"}</span>
+                      {renderTrophyIcon(t.icon, t.name)}
                       <span className="text-2xl font-black text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-xl">
                         {t.count}x
                       </span>
