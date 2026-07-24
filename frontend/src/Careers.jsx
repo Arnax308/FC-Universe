@@ -63,7 +63,7 @@ export default function Careers() {
           setTimeout(() => {
             setShowImportModal(false);
             setImportStatus({ success: null, message: "" });
-            navigate('/');
+            navigate('/dashboard');
           }, 1200);
         } else {
           setImportStatus({ success: false, message: `Import failed: ${json.detail || 'Unknown error'}` });
@@ -80,7 +80,7 @@ export default function Careers() {
     if (refreshCareers) {
       refreshCareers(selectedCareer.id);
     }
-    navigate('/');
+    navigate('/dashboard');
   };
 
   const getLogoUrl = (gameId) => {

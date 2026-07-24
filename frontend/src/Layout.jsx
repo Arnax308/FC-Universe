@@ -119,14 +119,14 @@ export default function Layout() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 space-y-1">
-          <NavLink to="/" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
-            <span className={`material-symbols-outlined transition-transform ${'group-hover:scale-110'} `}>dashboard</span>
-            <span className="text-label-caps font-label-caps tracking-wider">Dashboard</span>
-          </NavLink>
-          
-          <NavLink to="/careers" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
+          <NavLink to="/" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
             <span className="material-symbols-outlined group-hover:scale-110 transition-transform">public</span>
             <span className="text-label-caps font-label-caps tracking-wider">Universes</span>
+          </NavLink>
+          
+          <NavLink to="/dashboard" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
+            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">dashboard</span>
+            <span className="text-label-caps font-label-caps tracking-wider">Dashboard</span>
           </NavLink>
 
           <NavLink to="/players" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
