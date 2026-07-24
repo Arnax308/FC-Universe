@@ -17,7 +17,7 @@ export default function ClubProfile() {
     if (career && career.id && id) {
       setLoading(true);
       
-      // Fetch club details
+      // Fetch club details with dynamic stats
       const p1 = fetch(`/api/careers/${career.id}/clubs/${id}`)
         .then(res => res.json())
         .then(data => {
@@ -26,7 +26,7 @@ export default function ClubProfile() {
         .catch(err => console.error("Failed to fetch club details:", err));
 
       // Fetch squad players for this club
-      const p2 = fetch(`/api/careers/${career.id}/players?club_id=${id}&limit=100`)
+      const p2 = fetch(`/api/careers/${career.id}/players?club_id=${id}&limit=500`)
         .then(res => res.json())
         .then(data => {
           setSquad(Array.isArray(data) ? data : []);
@@ -34,7 +34,7 @@ export default function ClubProfile() {
         .catch(err => console.error("Failed to fetch squad:", err));
 
       // Fetch transfers for this club
-      const p3 = fetch(`/api/careers/${career.id}/transfers?club_id=${id}&limit=100`)
+      const p3 = fetch(`/api/careers/${career.id}/transfers?club_id=${id}&limit=200`)
         .then(res => res.json())
         .then(data => {
           setTransfers(Array.isArray(data) ? data : []);
@@ -63,14 +63,25 @@ export default function ClubProfile() {
     return (
       <div className="flex flex-col items-center justify-center py-24">
         <div className="w-12 h-12 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin mb-4 shadow-[0_0_20px_rgba(78,222,163,0.3)]"></div>
-        <p className="text-slate-400 text-xs font-mono uppercase tracking-widest">Loading Club Archives...</p>
+        <p className="text-slate-400 text-xs font-mono uppercase tracking-widest">Loading Club Profile...</p>
       </div>
     );
   }
 
-  const clubName = club?.name || "Real Madrid CF";
-  const stadiumName = club?.stadium_name || "Santiago Bernabéu";
-  const leagueName = club?.league || "La Liga";
+  const clubName = club?.name || "Club Profile";
+  const stadiumName = club?.stadium_name || "Club Stadium";
+  const leagueName = club?.league || "Unassigned League";
+  const managerName = club?.manager_name || "Manager";
+
+  // Calculate dynamic stats from squad
+  const topPlayer = squad.length > 0 ? [...squad].sort((a, b) => (b.overall || 0) - (a.overall || 0))[0] : null;
+  const avgOverall = squad.length > 0 ? (squad.reduce((acc, p) => acc + (p.overall || 0), 0) / squad.length).toFixed(1) : (club?.overall_rating || "-");
+
+  // Calculate net spend from transfers
+  const netSpendEur = club?.net_spend !== undefined ? club.net_spend : 0;
+  const formattedNetSpend = netSpendEur >= 0 
+    ? `€${(netSpendEur / 1000000).toFixed(1)}M Spent` 
+    : `€${(Math.abs(netSpendEur) / 1000000).toFixed(1)}M Profit`;
 
   return (
     <div className="w-full max-w-7xl mx-auto py-2 px-2 sm:px-4 space-y-6">
@@ -125,17 +136,17 @@ export default function ClubProfile() {
             </div>
           </div>
 
-          {/* Right Header Cards: Manager & Finances */}
+          {/* Right Header Cards: Manager & Financial Standing */}
           <div className="flex items-center gap-4 bg-black/40 border border-white/10 rounded-2xl p-4 backdrop-blur-md self-start md:self-auto">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Manager</p>
-              <p className="text-sm font-bold text-white mt-0.5">{career?.manager_name || "Carlo Ancelotti"}</p>
+              <p className="text-sm font-bold text-white mt-0.5">{managerName}</p>
             </div>
             <div className="h-8 w-px bg-white/10"></div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Finances</p>
-              <p className="text-sm font-bold text-emerald-400 mt-0.5 flex items-center gap-1">
-                <span>📈</span> Healthy
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Net Transfer Spend</p>
+              <p className="text-sm font-bold text-emerald-400 mt-0.5">
+                {formattedNetSpend}
               </p>
             </div>
           </div>
@@ -146,12 +157,8 @@ export default function ClubProfile() {
       <div className="flex items-center gap-2 overflow-x-auto border-b border-white/10 pb-2 scrollbar-none">
         {[
           'OVERVIEW',
-          'HISTORY',
           'CURRENT SQUAD',
           'TRANSFERS',
-          'RECORDS',
-          'SEASON HISTORY',
-          'TROPHIES',
           'STATISTICS'
         ].map(tab => (
           <button
@@ -171,275 +178,103 @@ export default function ClubProfile() {
       {/* TAB 1: OVERVIEW */}
       {activeTab === 'OVERVIEW' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: League Position Chart & Metrics */}
+          {/* Left Column: Dynamic Club Rating & Squad Summary */}
           <div className="lg:col-span-2 space-y-6">
-            {/* League Position Card */}
+            {/* Club Ratings Overview */}
             <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-xl font-bold text-white">League Position</h3>
-                  <p className="text-xs text-slate-400">Last 5 Seasons</p>
+                  <h3 className="text-xl font-bold text-white">Club Ratings</h3>
+                  <p className="text-xs text-slate-400">Tactical Ratings & Squad Composition</p>
                 </div>
-                <span className="material-symbols-outlined text-slate-500">show_chart</span>
+                <span className="material-symbols-outlined text-emerald-400">equalizer</span>
               </div>
 
-              {/* Chart Visual */}
-              <div className="pt-4 pb-2">
-                <div className="flex items-end justify-between h-44 gap-3 px-4 border-b border-white/10 pb-4">
-                  {[
-                    { season: '19/20', pos: 4, label: '4th' },
-                    { season: '20/21', pos: 3, label: '3rd' },
-                    { season: '21/22', pos: 1, label: '1st', highlight: true },
-                    { season: '22/23', pos: 3, label: '3rd' },
-                    { season: '23/24', pos: 1, label: '1st', highlight: true }
-                  ].map((item, idx) => (
-                    <div key={idx} className="flex flex-col items-center flex-1 space-y-2">
-                      <div className="w-full flex items-end justify-center h-32">
-                        <div 
-                          style={{ height: `${(5 - item.pos) * 25 + 25}%` }}
-                          className={`w-full max-w-[48px] rounded-t-xl transition-all duration-500 ${
-                            item.highlight 
-                              ? 'bg-emerald-400 shadow-[0_0_20px_rgba(78,222,163,0.4)]' 
-                              : 'bg-slate-700/80 hover:bg-slate-600'
-                          }`}
-                        ></div>
-                      </div>
-                      <span className="text-[11px] font-mono text-slate-400">{item.season}</span>
-                    </div>
-                  ))}
+              {/* 4 Ratings Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Overall</p>
+                  <p className="text-2xl font-black text-emerald-400 mt-1">{club?.overall_rating || avgOverall || "-"}</p>
+                </div>
+                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Attack</p>
+                  <p className="text-2xl font-black text-white mt-1">{club?.attack_rating || "-"}</p>
+                </div>
+                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Midfield</p>
+                  <p className="text-2xl font-black text-white mt-1">{club?.midfield_rating || "-"}</p>
+                </div>
+                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Defense</p>
+                  <p className="text-2xl font-black text-white mt-1">{club?.defense_rating || "-"}</p>
                 </div>
               </div>
             </div>
 
             {/* Metrics Row */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Star Player Card */}
               <div className="bg-[#12161f]/80 border border-white/10 rounded-2xl p-5 flex items-center justify-between shadow-xl">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Net Spend</p>
-                  <p className="text-2xl font-black text-white mt-1">€45.2M</p>
-                </div>
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                  <span className="material-symbols-outlined">account_balance</span>
-                </div>
-              </div>
-
-              <div className="bg-[#12161f]/80 border border-white/10 rounded-2xl p-5 flex items-center justify-between shadow-xl">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Goals Scored</p>
-                  <p className="text-2xl font-black text-emerald-400 mt-1">78 Goals</p>
-                </div>
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                  <span className="material-symbols-outlined">sports_soccer</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Fixtures & Recent Form */}
-          <div className="space-y-6">
-            <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-6">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <span className="material-symbols-outlined text-emerald-400 text-lg">calendar_month</span>
-                Fixtures & Results
-              </h3>
-
-              {/* Next Match Card */}
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 relative overflow-hidden">
-                <span className="absolute top-3 right-3 bg-emerald-400 text-slate-950 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                  NEXT MATCH
-                </span>
-                <p className="text-[10px] text-emerald-400/80 font-semibold uppercase tracking-wider">
-                  {leagueName} • Matchday 28
-                </p>
-                <div className="flex items-center justify-around py-4">
-                  <span className="font-bold text-white text-base">RMA</span>
-                  <span className="text-xs font-black text-emerald-400 bg-black/40 px-3 py-1 rounded-full">VS</span>
-                  <span className="font-bold text-white text-base">ATM</span>
-                </div>
-              </div>
-
-              {/* Recent Form */}
-              <div className="space-y-3">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Recent Form</p>
-                <div className="space-y-2">
-                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                      <span className="font-bold text-white">RMA</span>
-                    </div>
-                    <span className="font-bold text-white text-sm">3 - 1</span>
-                    <span className="text-slate-400">VAL</span>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                      <span className="font-bold text-slate-400">SEV</span>
-                    </div>
-                    <span className="font-bold text-white text-sm">1 - 1</span>
-                    <span className="text-slate-400">RMA</span>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                      <span className="font-bold text-white">RMA</span>
-                    </div>
-                    <span className="font-bold text-white text-sm">2 - 0</span>
-                    <span className="text-slate-400">BET</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: HISTORY */}
-      {activeTab === 'HISTORY' && (
-        <div className="space-y-8">
-          {/* History Hero Archive Header */}
-          <div className="relative rounded-3xl p-8 bg-gradient-to-r from-[#121a17] via-[#161b22] to-slate-900 border border-white/10 shadow-2xl overflow-hidden">
-            <div className="max-w-2xl space-y-3">
-              <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-widest">
-                Historical Archive
-              </span>
-              <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-                The White Legend
-              </h2>
-              <p className="text-slate-400 text-sm leading-relaxed">
-                Decades of unparalleled dominance, charting the journey from local kings to the eternal monarchs of European football.
-              </p>
-            </div>
-          </div>
-
-          {/* Grid: League Performance & Tactical Minds */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* League Performance Graph */}
-            <div className="lg:col-span-2 bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-white">League Performance</h3>
-                  <p className="text-xs text-slate-400">Position tracking over the last 20 seasons ({leagueName})</p>
-                </div>
-                <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold">
-                  ● League Winners
-                </span>
-              </div>
-
-              {/* Simple SVG Trendline */}
-              <div className="py-6">
-                <svg className="w-full h-32 text-emerald-400" viewBox="0 0 500 100" fill="none">
-                  <path 
-                    d="M0,40 L40,60 L80,20 L120,45 L160,30 L200,55 L240,25 L280,35 L320,15 L360,20 L400,20 L440,30 L480,20 L500,20" 
-                    stroke="currentColor" 
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 pt-4 border-t border-white/5 text-center">
-                <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Titles (20Y)</p>
-                  <p className="text-lg font-black text-emerald-400">09</p>
-                </div>
-                <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Average Pos.</p>
-                  <p className="text-lg font-black text-white">1.8</p>
-                </div>
-                <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Lowest Pos.</p>
-                  <p className="text-lg font-black text-amber-400">4th</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Tactical Minds (Managers) */}
-            <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
-              <h3 className="text-xl font-bold text-white">Tactical Minds</h3>
-              
-              <div className="space-y-3">
-                {[
-                  { name: "Carlo Ancelotti", tenure: "2013-15, 2021-Present", winRate: "72.4%" },
-                  { name: "Zinedine Zidane", tenure: "2016-18, 2019-21", winRate: "66.2%" },
-                  { name: "Vicente del Bosque", tenure: "1999-2003", winRate: "54.5%" }
-                ].map((mgr, i) => (
-                  <div key={i} className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold text-white">{mgr.name}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{mgr.tenure}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-black text-emerald-400">{mgr.winRate}</p>
-                      <p className="text-[9px] text-slate-500 uppercase">Win Rate</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* The Golden Chronicle (Eras) */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-bold text-white">The Golden Chronicle</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[
-                {
-                  title: "The Galácticos Era",
-                  years: "2000 - 2006",
-                  desc: "A global revolution where President Florentino Pérez signed world-class superstars every summer, creating the most marketable team in history.",
-                  trophies: "1x UCL, 2x La Liga"
-                },
-                {
-                  title: "The Décima Quest",
-                  years: "2009 - 2014",
-                  desc: "A twelve-year obsession to capture the elusive 10th European Cup, culminating in Lisbon under Carlo Ancelotti.",
-                  trophies: "1x UCL, 1x La Liga, 2x Copa"
-                },
-                {
-                  title: "The Three-Peat",
-                  years: "2016 - 2018",
-                  desc: "Zinedine Zidane's unprecedented era of European dominance, winning three consecutive Champions League titles.",
-                  trophies: "3x UCL, 1x La Liga"
-                }
-              ].map((era, i) => (
-                <div key={i} className="bg-[#12161f]/80 border border-white/10 rounded-2xl p-6 space-y-3 shadow-xl hover:border-emerald-500/40 transition-all">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-lg font-bold text-white">{era.title}</h4>
-                    <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">{era.years}</span>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">{era.desc}</p>
-                  <p className="text-xs font-bold text-amber-400 pt-2 border-t border-white/5 flex items-center gap-1">
-                    <span>🏆</span> {era.trophies}
+                <div className="min-w-0 pr-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Star Player</p>
+                  <p className="text-lg font-black text-white truncate mt-0.5">
+                    {topPlayer ? (topPlayer.known_name || `${topPlayer.first_name} ${topPlayer.last_name}`) : (club?.top_player_name || "None")}
+                  </p>
+                  <p className="text-xs text-emerald-400 font-semibold mt-0.5">
+                    {topPlayer ? `${topPlayer.position || 'FW'} • OVR ${topPlayer.overall}` : ''}
                   </p>
                 </div>
-              ))}
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-black text-lg">
+                  {topPlayer ? topPlayer.overall : (club?.top_player_overall || "-")}
+                </div>
+              </div>
+
+              {/* Total Squad Count Card */}
+              <div className="bg-[#12161f]/80 border border-white/10 rounded-2xl p-5 flex items-center justify-between shadow-xl">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Registered Players</p>
+                  <p className="text-2xl font-black text-white mt-1">{squad.length} Players</p>
+                </div>
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                  <span className="material-symbols-outlined">groups</span>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Historical Records & Pantheon */}
-          <div className="bg-[#12161f]/80 border border-white/10 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="space-y-4">
-              <h3 className="text-2xl font-bold text-white">Historical Records</h3>
-              <div className="space-y-2">
-                <p className="text-sm text-slate-300">
-                  Top Appearance Maker: <span className="font-bold text-emerald-400">Raúl (741)</span>
-                </p>
-                <p className="text-sm text-slate-300">
-                  All-Time Scorer: <span className="font-bold text-emerald-400">Ronaldo (450)</span>
-                </p>
-              </div>
+          {/* Right Column: Dynamic Transfers Summary & Quick Roster */}
+          <div className="space-y-6">
+            <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <span className="material-symbols-outlined text-emerald-400 text-lg">swap_horiz</span>
+                Recent Transfers ({transfers.length})
+              </h3>
+
+              {transfers.length === 0 ? (
+                <p className="text-xs text-slate-500 py-6 text-center italic">No transfer records logged for {clubName}.</p>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {transfers.slice(0, 5).map(t => (
+                    <div key={t.id} className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs">
+                      <div className="min-w-0 pr-2">
+                        <p className="font-bold text-white truncate">{t.player_name}</p>
+                        <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                          {t.from_club_name || "Club"} → {t.to_club_name || "Club"}
+                        </p>
+                      </div>
+                      <span className="font-mono font-bold text-emerald-400 flex-shrink-0">
+                        {t.fee ? `€${(t.fee / 1000000).toFixed(1)}M` : "Free"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            
-            <button className="px-6 py-3 rounded-2xl bg-emerald-400 text-slate-950 font-bold text-sm shadow-[0_0_20px_rgba(78,222,163,0.3)] hover:bg-emerald-300 transition-all">
-              Explore Hall of Fame ☆
-            </button>
           </div>
         </div>
       )}
 
-      {/* TAB 3: CURRENT SQUAD */}
+      {/* TAB 2: CURRENT SQUAD */}
       {activeTab === 'CURRENT SQUAD' && (
         <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
@@ -447,17 +282,17 @@ export default function ClubProfile() {
           </div>
 
           {squad.length === 0 ? (
-            <p className="text-sm text-slate-500 py-8 text-center">No player records found for this club.</p>
+            <p className="text-sm text-slate-500 py-12 text-center italic">No players registered for {clubName} in the current database snapshot.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {squad.map(player => (
                 <div 
                   key={player.id}
                   onClick={() => navigate(`/players/${player.id}`)}
-                  className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-emerald-500/40 flex items-center justify-between cursor-pointer transition-all hover:bg-white/[0.06]"
+                  className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-emerald-500/40 flex items-center justify-between cursor-pointer transition-all hover:bg-white/[0.06] group"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-slate-800 border border-white/10 overflow-hidden flex items-center justify-center">
+                  <div className="flex items-center gap-3 min-w-0 pr-2">
+                    <div className="w-12 h-12 rounded-xl bg-slate-800 border border-white/10 overflow-hidden flex items-center justify-center flex-shrink-0">
                       <img 
                         src={getPlayerPhotoUrl(player.game_id)} 
                         alt={player.known_name}
@@ -465,13 +300,17 @@ export default function ClubProfile() {
                         onError={(e) => { e.target.style.display = 'none'; }}
                       />
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-white">{player.known_name || `${player.first_name} ${player.last_name}`}</p>
-                      <p className="text-xs text-slate-400">{player.position || "MF"} • Age {player.age || 25}</p>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-white truncate group-hover:text-emerald-400 transition-colors">
+                        {player.known_name || `${player.first_name} ${player.last_name}`}
+                      </p>
+                      <p className="text-xs text-slate-400 truncate mt-0.5">
+                        {player.position || "MF"} • Age {player.age || (player.birth_year ? (2026 - player.birth_year) : 24)}
+                      </p>
                     </div>
                   </div>
 
-                  <span className="text-base font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20">
+                  <span className="text-base font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20 flex-shrink-0">
                     {player.overall || 80}
                   </span>
                 </div>
@@ -481,12 +320,12 @@ export default function ClubProfile() {
         </div>
       )}
 
-      {/* TAB 4: TRANSFERS */}
+      {/* TAB 3: TRANSFERS */}
       {activeTab === 'TRANSFERS' && (
         <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
-          <h3 className="text-xl font-bold text-white">Recent Transfer Activity</h3>
+          <h3 className="text-xl font-bold text-white">Transfer Logs ({transfers.length})</h3>
           {transfers.length === 0 ? (
-            <p className="text-sm text-slate-500 py-8 text-center">No transfer records found for this club.</p>
+            <p className="text-sm text-slate-500 py-12 text-center italic">No transfer records found for {clubName}.</p>
           ) : (
             <div className="space-y-3">
               {transfers.map(t => (
@@ -494,11 +333,11 @@ export default function ClubProfile() {
                   <div>
                     <p className="font-bold text-white text-sm">{t.player_name}</p>
                     <p className="text-slate-400 mt-0.5">
-                      {t.from_club_name || "Unknown"} → {t.to_club_name || "Unknown"}
+                      {t.from_club_name || "Club"} → {t.to_club_name || "Club"}
                     </p>
                   </div>
                   <span className="font-mono font-bold text-emerald-400 text-sm">
-                    {t.fee ? `€${(t.fee / 1000000).toFixed(1)}M` : "Free"}
+                    {t.fee ? `€${(t.fee / 1000000).toFixed(1)}M` : "Free Transfer"}
                   </span>
                 </div>
               ))}
@@ -507,12 +346,28 @@ export default function ClubProfile() {
         </div>
       )}
 
-      {/* TAB 5-8: Fallback / Trophies & Records */}
-      {['RECORDS', 'SEASON HISTORY', 'TROPHIES', 'STATISTICS'].includes(activeTab) && (
-        <div className="bg-[#12161f]/80 border border-white/10 rounded-3xl p-12 text-center text-slate-400 space-y-2">
-          <span className="material-symbols-outlined text-4xl text-emerald-400 mb-2">military_tech</span>
-          <h3 className="text-xl font-bold text-white">{activeTab} Archive</h3>
-          <p className="text-xs text-slate-500">Historical database extracted for {clubName}.</p>
+      {/* TAB 4: STATISTICS */}
+      {activeTab === 'STATISTICS' && (
+        <div className="bg-[#12161f]/80 border border-white/10 rounded-3xl p-8 shadow-xl space-y-6">
+          <h3 className="text-xl font-bold text-white">Squad Statistics Breakdown</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase">Average Squad OVR</p>
+              <p className="text-2xl font-black text-emerald-400 mt-1">{avgOverall}</p>
+            </div>
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase">Total Squad Size</p>
+              <p className="text-2xl font-black text-white mt-1">{squad.length}</p>
+            </div>
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase">Total Transfers</p>
+              <p className="text-2xl font-black text-amber-400 mt-1">{transfers.length}</p>
+            </div>
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase">Domestic Prestige</p>
+              <p className="text-2xl font-black text-white mt-1">{club?.domestic_prestige || 10}/10</p>
+            </div>
+          </div>
         </div>
       )}
     </div>
