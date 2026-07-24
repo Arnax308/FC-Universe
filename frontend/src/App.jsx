@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './Layout'
-import Dashboard from './Dashboard'
 import Careers from './Careers'
 import Players from './Players'
 import PlayerProfile from './PlayerProfile'
@@ -15,13 +14,12 @@ function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Careers />} />
           <Route path="careers" element={<Careers />} />
-          <Route path="dashboard" element={<Dashboard />} />
           <Route path="players" element={<Players />} />
           <Route path="players/:id" element={<PlayerProfile />} />
           <Route path="clubs" element={<Clubs />} />
           <Route path="transfers" element={<Transfers />} />
           <Route path="timeline" element={<Timeline />} />
-          <Route path="*" element={<div className="p-8 text-on-surface">Screen not extracted yet.</div>} />
+          <Route path="*" element={<div className="p-8 text-on-surface">Screen not found.</div>} />
         </Route>
       </Routes>
     </BrowserRouter>
@@ -29,4 +27,3 @@ function App() {
 }
 
 export default App
-

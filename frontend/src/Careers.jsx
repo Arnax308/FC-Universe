@@ -1,21 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 
 export default function Careers() {
   const context = useOutletContext() || {};
   const { career: activeCareer, refreshCareers } = context;
-  const navigate = useNavigate();
 
   const [careers, setCareers] = useState([]);
   const [localSaves, setLocalSaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
+  const [syncingId, setSyncingId] = useState(null);
   const [importStatus, setImportStatus] = useState({ success: null, message: "" });
   
   // Modal state for New Universe / Save Import
   const [showImportModal, setShowImportModal] = useState(false);
   const [manualPath, setManualPath] = useState("");
   const [teamOffset, setTeamOffset] = useState(1);
+
+  // Stats for active career
+  const [stats, setStats] = useState({ clubs: 0, players: 0, transfers: 0, timeline: 0 });
+  const [statsLoading, setStatsLoading] = useState(false);
 
   const fetchCareersAndSaves = () => {
     setLoading(true);
@@ -40,14 +44,49 @@ export default function Careers() {
     Promise.all([p1, p2]).finally(() => setLoading(false));
   };
 
+  const fetchActiveStats = () => {
+    if (!activeCareer) return;
+    setStatsLoading(true);
+    Promise.all([
+      fetch(`/api/careers/${activeCareer.id}/clubs?limit=1000`).then(res => res.json()),
+      fetch(`/api/careers/${activeCareer.id}/players?limit=1000`).then(res => res.json()),
+      fetch(`/api/careers/${activeCareer.id}/transfers?limit=200`).then(res => res.json()),
+      fetch(`/api/careers/${activeCareer.id}/timeline?limit=200`).then(res => res.json())
+    ])
+      .then(([clubsData, playersData, transfersData, timelineData]) => {
+        setStats({
+          clubs: Array.isArray(clubsData) ? clubsData.length : 0,
+          players: Array.isArray(playersData) ? playersData.length : 0,
+          transfers: Array.isArray(transfersData) ? transfersData.length : 0,
+          timeline: Array.isArray(timelineData) ? timelineData.length : 0
+        });
+        setStatsLoading(false);
+      })
+      .catch(err => {
+        console.error("Failed to fetch active stats:", err);
+        setStatsLoading(false);
+      });
+  };
+
   useEffect(() => {
     fetchCareersAndSaves();
   }, []);
 
-  const handleImport = (path) => {
+  useEffect(() => {
+    if (activeCareer) {
+      fetchActiveStats();
+    }
+  }, [activeCareer]);
+
+  const handleImport = (path, targetCareerId = null) => {
     if (importing || !path) return;
     setImporting(true);
-    setImportStatus({ success: null, message: "Parsing binary career save and extracting database..." });
+    if (targetCareerId) setSyncingId(targetCareerId);
+
+    setImportStatus({ 
+      success: null, 
+      message: "Syncing save file... Reading binary Frostbite chunks and parsing career mode database." 
+    });
 
     fetch(`/api/import?file_path=${encodeURIComponent(path)}&team_offset=${teamOffset}`, {
       method: 'POST',
@@ -55,22 +94,30 @@ export default function Careers() {
       .then(res => res.json())
       .then(json => {
         setImporting(false);
+        setSyncingId(null);
         if (json.success) {
-          setImportStatus({ success: true, message: `Successfully imported universe: "${json.data.name}"!` });
+          setImportStatus({ 
+            success: true, 
+            message: `Successfully synced universe "${json.data.name}"!` 
+          });
           fetchCareersAndSaves();
-          if (refreshCareers) refreshCareers(json.data.career_id);
-          
+          const newId = json.data.career_id || targetCareerId;
+          if (refreshCareers) refreshCareers(newId);
+
           setTimeout(() => {
             setShowImportModal(false);
             setImportStatus({ success: null, message: "" });
-            navigate('/dashboard');
-          }, 1200);
+          }, 2500);
         } else {
-          setImportStatus({ success: false, message: `Import failed: ${json.detail || 'Unknown error'}` });
+          setImportStatus({ 
+            success: false, 
+            message: `Sync failed: ${json.detail || 'Lock conflict or file error'}` 
+          });
         }
       })
       .catch(err => {
         setImporting(false);
+        setSyncingId(null);
         setImportStatus({ success: false, message: `Request failed: ${err.message}` });
       });
   };
@@ -80,7 +127,6 @@ export default function Careers() {
     if (refreshCareers) {
       refreshCareers(selectedCareer.id);
     }
-    navigate('/dashboard');
   };
 
   const getLogoUrl = (gameId) => {
@@ -104,11 +150,11 @@ export default function Careers() {
   ];
 
   return (
-    <div className="w-full max-w-6xl mx-auto py-4 px-2 sm:px-4">
-      {/* Hero Header Section */}
-      <div className="text-center mb-12 space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-widest backdrop-blur-md">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+    <div className="w-full max-w-6xl mx-auto py-2 px-2 sm:px-4">
+      {/* Top Banner & Header */}
+      <div className="text-center mb-8 space-y-3">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-widest backdrop-blur-md">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           FC UNIVERSE
         </div>
         <h1 className="text-4xl sm:text-5xl font-black text-white tracking-tight font-headline-lg">
@@ -118,6 +164,85 @@ export default function Careers() {
           Return to the touchline. Choose an active career save to continue building your legacy, or forge a new path in football history.
         </p>
       </div>
+
+      {/* Global Import / Sync Status Notification Banner */}
+      {importStatus.message && (
+        <div className={`mb-8 p-4 rounded-2xl border flex items-center gap-3.5 backdrop-blur-xl shadow-xl animate-fade-in ${
+          importStatus.success === true 
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.15)]' 
+            : importStatus.success === false
+            ? 'bg-red-500/10 border-red-500/30 text-red-400 shadow-[0_0_25px_rgba(239,68,68,0.15)]'
+            : 'bg-amber-500/10 border-amber-500/30 text-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.15)]'
+        }`}>
+          {importing ? (
+            <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
+          ) : (
+            <span className="material-symbols-outlined text-xl flex-shrink-0">
+              {importStatus.success === true ? 'check_circle' : importStatus.success === false ? 'error' : 'info'}
+            </span>
+          )}
+          <span className="text-sm font-semibold flex-1">{importStatus.message}</span>
+        </div>
+      )}
+
+      {/* Active Universe Quick Overview Bar */}
+      {activeCareer && (
+        <div className="mb-10 p-5 rounded-2xl bg-[#121a17]/90 border-2 border-emerald-400/80 shadow-[0_0_30px_rgba(78,222,163,0.2)] backdrop-blur-xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16"></div>
+          
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="w-14 h-14 rounded-full bg-black/50 border border-emerald-400/40 p-1 flex items-center justify-center flex-shrink-0 shadow-lg">
+              {activeCareer.team_id ? (
+                <img 
+                  src={getLogoUrl(activeCareer.team_id)} 
+                  alt="Active Club" 
+                  className="w-full h-full object-contain"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+              ) : (
+                <span className="material-symbols-outlined text-emerald-400 text-2xl">shield</span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black uppercase tracking-wider">
+                  Active Universe
+                </span>
+                <span className="text-xs text-emerald-400/80 font-mono">ID: {activeCareer.save_identifier?.substring(0, 8)}</span>
+              </div>
+              <h2 className="text-2xl font-bold text-white tracking-tight truncate mt-1">
+                {activeCareer.team_name || activeCareer.name}
+              </h2>
+              <p className="text-xs text-slate-400 font-medium">
+                Manager: <span className="text-emerald-400 font-semibold">{activeCareer.manager_name || "Unknown"}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Metrics */}
+          <div className="flex items-center gap-4 sm:gap-6 border-t md:border-t-0 border-white/10 pt-4 md:pt-0 w-full md:w-auto justify-around">
+            <div className="text-center">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Clubs</p>
+              <p className="text-xl font-bold text-white">{statsLoading ? "..." : stats.clubs}</p>
+            </div>
+            <div className="h-8 w-px bg-white/10"></div>
+            <div className="text-center">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Players</p>
+              <p className="text-xl font-bold text-emerald-400">{statsLoading ? "..." : stats.players}</p>
+            </div>
+            <div className="h-8 w-px bg-white/10"></div>
+            <div className="text-center">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Transfers</p>
+              <p className="text-xl font-bold text-amber-400">{statsLoading ? "..." : stats.transfers}</p>
+            </div>
+            <div className="h-8 w-px bg-white/10"></div>
+            <div className="text-center">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Timeline</p>
+              <p className="text-xl font-bold text-blue-400">{statsLoading ? "..." : stats.timeline}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Grid of Universes */}
       {loading ? (
@@ -130,13 +255,17 @@ export default function Careers() {
           {/* Imported Careers */}
           {careers.map((car, idx) => {
             const isActive = activeCareer && String(activeCareer.id) === String(car.id);
-            const isLastPlayed = car.is_last_played || isActive;
+            const isSyncingThis = importing && syncingId === car.id;
             const bgStadium = stadiumImages[idx % stadiumImages.length];
 
             return (
               <div 
                 key={car.id} 
-                className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 hover:border-emerald-500/40 rounded-2xl overflow-hidden shadow-2xl transition-all duration-300 group flex flex-col justify-between relative hover:-translate-y-1 hover:shadow-[0_20px_40px_rgba(0,0,0,0.6)]"
+                className={`backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl transition-all duration-300 group flex flex-col justify-between relative hover:-translate-y-1 ${
+                  isActive 
+                    ? 'bg-[#121c18]/90 border-2 border-emerald-400/90 shadow-[0_0_30px_rgba(78,222,163,0.25)]' 
+                    : 'bg-[#12161f]/80 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_20px_40px_rgba(0,0,0,0.6)]'
+                }`}
               >
                 {/* Stadium Header Image */}
                 <div className="relative h-44 w-full overflow-hidden bg-slate-900">
@@ -147,17 +276,23 @@ export default function Careers() {
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#12161f] via-[#12161f]/40 to-transparent"></div>
 
-                  {/* Top Badge (Last Played) */}
-                  {isLastPlayed && (
-                    <div className="absolute top-3 right-3 bg-emerald-950/90 border border-emerald-500/40 text-emerald-400 text-xs font-semibold px-3 py-1 rounded-full flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.3)] backdrop-blur-md">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                      Last Played
-                    </div>
-                  )}
+                  {/* Top Badge (Active Universe / Saved) */}
+                  <div className="absolute top-3 right-3 flex items-center gap-2">
+                    {isActive ? (
+                      <div className="bg-emerald-950/90 border border-emerald-500/50 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.4)] backdrop-blur-md">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Active Universe
+                      </div>
+                    ) : car.is_last_played ? (
+                      <div className="bg-emerald-950/70 border border-emerald-500/30 text-emerald-300 text-xs font-semibold px-3 py-1 rounded-full flex items-center gap-1.5 backdrop-blur-md">
+                        Last Played
+                      </div>
+                    ) : null}
+                  </div>
 
                   {/* Club Logo Crest */}
                   {car.team_id && (
-                    <div className="absolute bottom-3 left-4 w-12 h-12 rounded-full bg-black/40 border border-white/20 p-1 flex items-center justify-center backdrop-blur-md shadow-lg">
+                    <div className="absolute bottom-3 left-4 w-12 h-12 rounded-full bg-black/50 border border-white/20 p-1 flex items-center justify-center backdrop-blur-md shadow-lg">
                       <img 
                         src={getLogoUrl(car.team_id)} 
                         alt="Crest" 
@@ -171,7 +306,9 @@ export default function Careers() {
                 {/* Card Content Body */}
                 <div className="p-5 space-y-4 flex-1">
                   <div>
-                    <h3 className="text-2xl font-bold text-white tracking-tight group-hover:text-emerald-400 transition-colors line-clamp-1">
+                    <h3 className={`text-2xl font-bold tracking-tight line-clamp-1 transition-colors ${
+                      isActive ? 'text-emerald-400' : 'text-white group-hover:text-emerald-400'
+                    }`}>
                       {car.team_name || car.name || "Real Madrid CF"}
                     </h3>
                     <p className="text-slate-400 text-sm flex items-center gap-1.5 mt-0.5 font-medium">
@@ -210,22 +347,39 @@ export default function Careers() {
                   </div>
                 </div>
 
-                {/* Card Footer */}
-                <div className="px-5 py-4 border-t border-white/5 bg-black/20 flex items-center justify-between">
-                  <span className="text-xs text-slate-500">
-                    Created: {formatDate(car.created_at)}
+                {/* Card Footer with Active & Sync Actions */}
+                <div className="px-5 py-4 border-t border-white/5 bg-black/20 flex items-center justify-between gap-2">
+                  <span className="text-xs text-slate-500 truncate">
+                    {formatDate(car.created_at)}
                   </span>
-                  <button
-                    onClick={() => handleSelectCareer(car)}
-                    className={`px-5 py-2 rounded-xl font-bold text-sm transition-all duration-300 flex items-center gap-1.5 shadow-lg ${
-                      isLastPlayed 
-                        ? 'bg-emerald-400 hover:bg-emerald-300 text-slate-950 shadow-[0_0_20px_rgba(78,222,163,0.35)] hover:translate-x-0.5' 
-                        : 'bg-white/5 hover:bg-white/10 text-white border border-white/10 hover:border-white/20'
-                    }`}
-                  >
-                    {isLastPlayed ? 'Resume' : 'Load'}
-                    <span className="material-symbols-outlined text-sm">arrow_forward</span>
-                  </button>
+                  
+                  <div className="flex items-center gap-2">
+                    {/* Sync Button */}
+                    <button
+                      onClick={() => handleImport(car.save_file_path, car.id)}
+                      disabled={importing}
+                      title="Sync Save File to re-parse current stats"
+                      className="p-2 rounded-xl bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-400 text-slate-300 border border-white/10 hover:border-emerald-500/40 transition-all duration-300 flex items-center justify-center disabled:opacity-50"
+                    >
+                      <span className={`material-symbols-outlined text-base ${isSyncingThis ? 'animate-spin text-emerald-400' : ''}`}>
+                        sync
+                      </span>
+                    </button>
+
+                    {/* Select / Active Button */}
+                    <button
+                      onClick={() => handleSelectCareer(car)}
+                      disabled={isActive}
+                      className={`px-4 py-2 rounded-xl font-bold text-xs transition-all duration-300 flex items-center gap-1.5 shadow-lg ${
+                        isActive 
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 cursor-default' 
+                          : 'bg-emerald-400 hover:bg-emerald-300 text-slate-950 shadow-[0_0_15px_rgba(78,222,163,0.3)] hover:translate-x-0.5'
+                      }`}
+                    >
+                      {isActive ? 'Active' : 'Set Active'}
+                      {!isActive && <span className="material-symbols-outlined text-xs">arrow_forward</span>}
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -271,26 +425,6 @@ export default function Careers() {
                 <span className="material-symbols-outlined text-lg">close</span>
               </button>
             </div>
-
-            {/* Status notification */}
-            {importStatus.message && (
-              <div className={`p-4 rounded-xl border flex items-center gap-3 text-sm font-semibold ${
-                importStatus.success === true 
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
-                  : importStatus.success === false
-                  ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                  : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-              }`}>
-                {importing ? (
-                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <span className="material-symbols-outlined text-base">
-                    {importStatus.success === true ? 'check_circle' : importStatus.success === false ? 'error' : 'info'}
-                  </span>
-                )}
-                <span>{importStatus.message}</span>
-              </div>
-            )}
 
             {/* Auto-detected Local Saves */}
             <div className="space-y-3">
