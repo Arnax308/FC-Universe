@@ -104,64 +104,80 @@ def get_club(career_id: int, club_id: int, db: Session = Depends(get_db)):
     HISTORICAL_TROPHIES_MAP = {
         "Real Madrid": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 15, "category": "Continental"},
-            {"name": "La Liga", "icon": "/assets/trophies/league.png", "count": 36, "category": "Domestic League"},
-            {"name": "Copa del Rey", "icon": "/assets/trophies/cup.png", "count": 20, "category": "Domestic Cup"},
-            {"name": "FIFA Club World Cup", "icon": "/assets/trophies/ucl.png", "count": 5, "category": "World"}
+            {"name": "La Liga", "icon": "/assets/trophies/laliga.png", "count": 36, "category": "Domestic League"},
+            {"name": "Copa del Rey", "icon": "/assets/trophies/copa_del_rey.png", "count": 20, "category": "Domestic Cup"},
+            {"name": "Supercopa de España", "icon": "/assets/trophies/supercopa_espana.png", "count": 13, "category": "Domestic Supercup"},
+            {"name": "FIFA Club World Cup", "icon": "/assets/trophies/club_world_cup.png", "count": 5, "category": "World"}
         ],
         "Barcelona": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 5, "category": "Continental"},
-            {"name": "La Liga", "icon": "/assets/trophies/league.png", "count": 27, "category": "Domestic League"},
-            {"name": "Copa del Rey", "icon": "/assets/trophies/cup.png", "count": 31, "category": "Domestic Cup"},
-            {"name": "FIFA Club World Cup", "icon": "/assets/trophies/ucl.png", "count": 3, "category": "World"}
+            {"name": "La Liga", "icon": "/assets/trophies/laliga.png", "count": 27, "category": "Domestic League"},
+            {"name": "Copa del Rey", "icon": "/assets/trophies/copa_del_rey.png", "count": 31, "category": "Domestic Cup"},
+            {"name": "Supercopa de España", "icon": "/assets/trophies/supercopa_espana.png", "count": 14, "category": "Domestic Supercup"},
+            {"name": "FIFA Club World Cup", "icon": "/assets/trophies/club_world_cup.png", "count": 3, "category": "World"}
         ],
         "Bayern": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 6, "category": "Continental"},
-            {"name": "Bundesliga", "icon": "/assets/trophies/league.png", "count": 33, "category": "Domestic League"},
-            {"name": "DFB-Pokal", "icon": "/assets/trophies/cup.png", "count": 20, "category": "Domestic Cup"}
+            {"name": "Bundesliga", "icon": "/assets/trophies/bundesliga.png", "count": 33, "category": "Domestic League"},
+            {"name": "DFB-Pokal", "icon": "/assets/trophies/dfb_pokal.png", "count": 20, "category": "Domestic Cup"},
+            {"name": "DFL-Supercup", "icon": "/assets/trophies/dfl_supercup.png", "count": 10, "category": "Domestic Supercup"}
         ],
         "Manchester City": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 1, "category": "Continental"},
-            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 10, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 7, "category": "Domestic Cup"}
+            {"name": "Premier League", "icon": "/assets/trophies/premier_league.png", "count": 10, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/fa_cup.png", "count": 7, "category": "Domestic Cup"},
+            {"name": "EFL Cup (Carabao)", "icon": "/assets/trophies/efl_cup.png", "count": 8, "category": "League Cup"},
+            {"name": "Community Shield", "icon": "/assets/trophies/community_shield.png", "count": 7, "category": "Supercup"}
         ],
         "Manchester United": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 3, "category": "Continental"},
-            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 20, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 13, "category": "Domestic Cup"}
+            {"name": "Premier League", "icon": "/assets/trophies/premier_league.png", "count": 20, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/fa_cup.png", "count": 13, "category": "Domestic Cup"},
+            {"name": "EFL Cup", "icon": "/assets/trophies/efl_cup.png", "count": 6, "category": "League Cup"},
+            {"name": "Community Shield", "icon": "/assets/trophies/community_shield.png", "count": 21, "category": "Supercup"}
         ],
         "Liverpool": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 6, "category": "Continental"},
-            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 19, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 8, "category": "Domestic Cup"}
+            {"name": "Premier League", "icon": "/assets/trophies/premier_league.png", "count": 19, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/fa_cup.png", "count": 8, "category": "Domestic Cup"},
+            {"name": "EFL Cup", "icon": "/assets/trophies/efl_cup.png", "count": 10, "category": "League Cup"},
+            {"name": "Community Shield", "icon": "/assets/trophies/community_shield.png", "count": 16, "category": "Supercup"}
         ],
         "Arsenal": [
-            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 13, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 14, "category": "Domestic Cup"},
-            {"name": "Community Shield", "icon": "/assets/trophies/cup.png", "count": 17, "category": "Domestic Cup"}
+            {"name": "Premier League", "icon": "/assets/trophies/premier_league.png", "count": 13, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/fa_cup.png", "count": 14, "category": "Domestic Cup"},
+            {"name": "EFL Cup", "icon": "/assets/trophies/efl_cup.png", "count": 2, "category": "League Cup"},
+            {"name": "FA Community Shield", "icon": "/assets/trophies/community_shield.png", "count": 17, "category": "Supercup"}
         ],
         "Chelsea": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 2, "category": "Continental"},
-            {"name": "Premier League", "icon": "/assets/trophies/league.png", "count": 6, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/assets/trophies/cup.png", "count": 8, "category": "Domestic Cup"}
+            {"name": "Premier League", "icon": "/assets/trophies/premier_league.png", "count": 6, "category": "Domestic League"},
+            {"name": "FA Cup", "icon": "/assets/trophies/fa_cup.png", "count": 8, "category": "Domestic Cup"},
+            {"name": "EFL Cup", "icon": "/assets/trophies/efl_cup.png", "count": 5, "category": "League Cup"},
+            {"name": "UEFA Europa League", "icon": "/assets/trophies/uel.png", "count": 2, "category": "Continental"}
         ],
         "Milan": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 7, "category": "Continental"},
-            {"name": "Serie A", "icon": "/assets/trophies/league.png", "count": 19, "category": "Domestic League"},
-            {"name": "Coppa Italia", "icon": "/assets/trophies/cup.png", "count": 5, "category": "Domestic Cup"}
+            {"name": "Serie A Scudetto", "icon": "/assets/trophies/serie_a.png", "count": 19, "category": "Domestic League"},
+            {"name": "Coppa Italia", "icon": "/assets/trophies/coppa_italia.png", "count": 5, "category": "Domestic Cup"},
+            {"name": "Supercoppa Italiana", "icon": "/assets/trophies/supercoppa_italiana.png", "count": 7, "category": "Domestic Supercup"}
         ],
         "Inter": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 3, "category": "Continental"},
-            {"name": "Serie A", "icon": "/assets/trophies/league.png", "count": 20, "category": "Domestic League"},
-            {"name": "Coppa Italia", "icon": "/assets/trophies/cup.png", "count": 9, "category": "Domestic Cup"}
+            {"name": "Serie A Scudetto", "icon": "/assets/trophies/serie_a.png", "count": 20, "category": "Domestic League"},
+            {"name": "Coppa Italia", "icon": "/assets/trophies/coppa_italia.png", "count": 9, "category": "Domestic Cup"},
+            {"name": "Supercoppa Italiana", "icon": "/assets/trophies/supercoppa_italiana.png", "count": 8, "category": "Domestic Supercup"}
         ],
         "Juventus": [
             {"name": "UEFA Champions League", "icon": "/assets/trophies/ucl.png", "count": 2, "category": "Continental"},
-            {"name": "Serie A", "icon": "/assets/trophies/league.png", "count": 36, "category": "Domestic League"},
-            {"name": "Coppa Italia", "icon": "/assets/trophies/cup.png", "count": 15, "category": "Domestic Cup"}
+            {"name": "Serie A Scudetto", "icon": "/assets/trophies/serie_a.png", "count": 36, "category": "Domestic League"},
+            {"name": "Coppa Italia", "icon": "/assets/trophies/coppa_italia.png", "count": 15, "category": "Domestic Cup"},
+            {"name": "Supercoppa Italiana", "icon": "/assets/trophies/supercoppa_italiana.png", "count": 9, "category": "Domestic Supercup"}
         ],
         "Paris": [
-            {"name": "Ligue 1", "icon": "/assets/trophies/league.png", "count": 12, "category": "Domestic League"},
-            {"name": "Coupe de France", "icon": "/assets/trophies/cup.png", "count": 15, "category": "Domestic Cup"}
+            {"name": "Ligue 1", "icon": "/assets/trophies/ligue_1.png", "count": 12, "category": "Domestic League"},
+            {"name": "Coupe de France", "icon": "/assets/trophies/coupe_de_france.png", "count": 15, "category": "Domestic Cup"},
+            {"name": "Trophée des Champions", "icon": "/assets/trophies/trophee_des_champions.png", "count": 12, "category": "Domestic Supercup"}
         ]
     }
 

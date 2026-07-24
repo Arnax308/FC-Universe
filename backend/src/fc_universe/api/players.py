@@ -111,7 +111,22 @@ def get_player(career_id: int, player_id: int, db: Session = Depends(get_db)):
         
         for te in club_trophy_events:
             desc = te.description
-            icon_path = "/assets/trophies/ucl.png" if "Champions League" in desc else "/assets/trophies/league.png"
+            desc_lower = desc.lower()
+            if "champions league" in desc_lower:
+                icon_path = "/assets/trophies/ucl.png"
+            elif "europa league" in desc_lower:
+                icon_path = "/assets/trophies/uel.png"
+            elif "premier league" in desc_lower:
+                icon_path = "/assets/trophies/premier_league.png"
+            elif "la liga" in desc_lower or "primera" in desc_lower:
+                icon_path = "/assets/trophies/laliga.png"
+            elif "bundesliga" in desc_lower:
+                icon_path = "/assets/trophies/bundesliga.png"
+            elif "serie a" in desc_lower:
+                icon_path = "/assets/trophies/serie_a.png"
+            else:
+                icon_path = "/assets/trophies/fa_cup.png"
+                
             player_trophies.append({
                 "name": desc,
                 "type": "Team Silverware",
