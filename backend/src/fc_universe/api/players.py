@@ -72,6 +72,85 @@ def get_player(career_id: int, player_id: int, db: Session = Depends(get_db)):
     return player
 
 
+POS_KEY_STATS = {
+    "ST": ["finishing", "shot_power", "positioning", "sprint_speed", "heading_accuracy"],
+    "RW": ["sprint_speed", "acceleration", "dribbling", "crossing", "ball_control"],
+    "LW": ["sprint_speed", "acceleration", "dribbling", "crossing", "ball_control"],
+    "CAM": ["short_passing", "vision", "ball_control", "dribbling", "long_shots"],
+    "RM": ["sprint_speed", "crossing", "short_passing", "dribbling", "stamina"],
+    "LM": ["sprint_speed", "crossing", "short_passing", "dribbling", "stamina"],
+    "CM": ["short_passing", "long_passing", "vision", "ball_control", "stamina"],
+    "CDM": ["standing_tackle", "interceptions", "short_passing", "stamina", "defensive_awareness"],
+    "CB": ["standing_tackle", "sliding_tackle", "strength", "defensive_awareness", "heading_accuracy"],
+    "RB": ["sprint_speed", "standing_tackle", "stamina", "crossing", "acceleration"],
+    "LB": ["sprint_speed", "standing_tackle", "stamina", "crossing", "acceleration"],
+    "GK": ["gk_diving", "gk_handling", "gk_kicking", "gk_positioning", "gk_reflexes"]
+}
+
+BASE_DISTANCE_WEEKS = {
+    ("ST", "RW"): 6, ("ST", "LW"): 6, ("ST", "CAM"): 8,
+    ("RW", "LW"): 3, ("LW", "RW"): 3, ("RW", "RM"): 3, ("LW", "LM"): 3,
+    ("CAM", "CM"): 4, ("CM", "CAM"): 4, ("CM", "CDM"): 4, ("CDM", "CM"): 4,
+    ("RM", "LM"): 4, ("LM", "RM"): 4, ("CDM", "CB"): 6, ("CB", "CDM"): 6,
+    ("CB", "RB"): 8, ("CB", "LB"): 8,
+    ("RB", "LB"): 4, ("LB", "RB"): 4, ("CM", "RM"): 5, ("CM", "LM"): 5,
+}
+
+ALL_OUTFIELD_POSITIONS = ["ST", "RW", "LW", "CAM", "RM", "LM", "CM", "CDM", "CB", "RB", "LB"]
+
+def calculate_conversion_plans(player):
+    current_pos = player.position or "CM"
+    if current_pos == "GK":
+        return []
+
+    plans = []
+    player_dict = {c.name: getattr(player, c.name) for c in player.__table__.columns}
+    overall = player.overall or 75
+    birth_year = player.birth_year or 2002
+    age = max(16, 2026 - birth_year)
+
+    for target_pos in ALL_OUTFIELD_POSITIONS:
+        if target_pos == current_pos:
+            continue
+
+        pair = (current_pos, target_pos)
+        rev = (target_pos, current_pos)
+        base_weeks = BASE_DISTANCE_WEEKS.get(pair) or BASE_DISTANCE_WEEKS.get(rev) or 16
+
+        key_stats = POS_KEY_STATS.get(target_pos, [])
+        if key_stats:
+            avg_stat = sum(player_dict.get(s) or 60 for s in key_stats) / len(key_stats)
+            diff = overall - avg_stat
+            mult = 1.5 if diff > 10 else (1.25 if diff > 5 else (0.75 if diff < -5 else 1.0))
+            suitability = max(20, min(99, int(100 - (diff * 2))))
+        else:
+            mult = 1.0
+            suitability = 75
+
+        age_mult = 0.85 if age <= 20 else (1.35 if age >= 30 else 1.0)
+        weeks = max(2, int(round(base_weeks * mult * age_mult)))
+
+        if weeks <= 4:
+            label = "Fast Conversion"
+        elif weeks <= 12:
+            label = "Moderate Transition"
+        else:
+            label = "Long-Term Transition"
+
+        is_secondary = player.secondary_positions and target_pos in player.secondary_positions.split(", ")
+
+        plans.append({
+            "target_position": target_pos,
+            "weeks": weeks,
+            "difficulty": label,
+            "suitability": suitability,
+            "is_secondary": bool(is_secondary)
+        })
+
+    plans.sort(key=lambda x: x["weeks"])
+    return plans
+
+
 @router.get("/careers/{career_id}/players/{player_id}/profile")
 def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get_db)):
     """Get complete profile data for a player including historical stats, transfers, and awards."""
@@ -170,11 +249,15 @@ def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get
         }
         for row in timeline_rows
     ]
+
+    # Calculate position conversion plans
+    conversion_plans = calculate_conversion_plans(player)
     
     return {
         "player": player,
         "stats": stats,
         "transfers": transfers,
         "awards": awards,
-        "timeline": timeline
+        "timeline": timeline,
+        "conversion_plans": conversion_plans
     }

@@ -10,6 +10,8 @@ class PlayerBase(BaseSchema):
     last_name: str | None = None
     known_name: str | None = None
     position: str | None = None
+    secondary_positions: str | None = None
+    player_type: str | None = "real"
     nationality: str | None = None
     birth_year: int | None = None
     overall: int | None = None

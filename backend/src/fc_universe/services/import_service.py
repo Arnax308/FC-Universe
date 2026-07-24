@@ -284,16 +284,19 @@ class ImportService:
                 q_id = p.get("QCfa")
                 h_id = p.get("HDYx")
 
-                # If the player already exists in the DB with a known_name, keep it.
-                # The name_scraper background task will fill in the missing ones.
+                # If the player already exists in the DB with a resolved name, keep it.
+                # Only overwrite if the existing name is a placeholder.
                 existing_player = existing_players.get(game_id)
-                if existing_player and existing_player.known_name:
-                    name_str = existing_player.known_name
+                existing_name = existing_player.known_name if existing_player else None
+                is_placeholder = not existing_name or existing_name.startswith("Player #") or existing_name.startswith("Youth Player #")
+                
+                if existing_name and not is_placeholder:
+                    name_str = existing_name
                 else:
                     name_str = name_resolver.resolve_name(game_id, t_id, q_id, h_id, dc_names)
 
                 if not name_str:
-                    if game_id >= 270000:
+                    if game_id >= 280000:
                         name_str = f"Youth Player #{game_id}"
                     else:
                         name_str = f"Player #{game_id}"
@@ -329,12 +332,79 @@ class ImportService:
                             "type": transfer_type
                         })
 
+                # Map position code from wZQU column (EA SPORTS FC 26 authentic position enum)
+                POSITION_CODE_MAP = {
+                    0: "GK",
+                    3: "RB",
+                    5: "CB",
+                    7: "LB",
+                    10: "CDM",
+                    12: "RM",
+                    14: "CM",
+                    16: "LM",
+                    18: "CAM",
+                    23: "RW",
+                    25: "ST",
+                    27: "LW",
+                }
+                pos_code = p.get("wZQU")
+                primary_pos = POSITION_CODE_MAP.get(pos_code)
+
+                # Secondary positions from NgVS, OblE columns
+                sec_pos_parts = []
+                for col in ["NgVS", "OblE"]:
+                    sec_code = p.get(col)
+                    if sec_code is not None and sec_code >= 0:
+                        mapped = POSITION_CODE_MAP.get(sec_code)
+                        if mapped and mapped != primary_pos:
+                            sec_pos_parts.append(mapped)
+                secondary_pos = ", ".join(sec_pos_parts) if sec_pos_parts else None
+
+                # Birth year from eyGK (YYYYMMDD format)
+                birth_raw = p.get("eyGK")
+                birth_year_val = int(str(birth_raw)[:4]) if birth_raw and birth_raw > 19000000 else None
+
+                # Nationality from enmm (EA FC nationality code)
+                NATIONALITY_MAP = {
+                    1: "Albania", 2: "Andorra", 3: "Armenia", 4: "Austria", 5: "Azerbaijan",
+                    6: "Belarus", 7: "Belgium", 8: "Bosnia Herzegovina", 9: "Bulgaria", 10: "Croatia",
+                    11: "Cyprus", 12: "Czech Republic", 13: "Denmark", 14: "England", 15: "Estonia",
+                    16: "Faroe Islands", 17: "Finland", 18: "France", 19: "North Macedonia", 20: "Georgia",
+                    21: "Germany", 22: "Greece", 23: "Hungary", 24: "Iceland", 25: "Republic of Ireland",
+                    26: "Israel", 27: "Italy", 28: "Latvia", 29: "Liechtenstein", 30: "Lithuania",
+                    31: "Luxembourg", 32: "Malta", 33: "Moldova", 34: "Netherlands", 35: "Northern Ireland",
+                    36: "Norway", 37: "Poland", 38: "Portugal", 39: "Romania", 40: "Russia",
+                    41: "San Marino", 42: "Scotland", 43: "Slovakia", 44: "Slovenia", 45: "Spain",
+                    46: "Sweden", 47: "Switzerland", 48: "Turkey", 49: "Ukraine", 50: "Wales",
+                    51: "Serbia", 52: "Argentina", 53: "Bolivia", 54: "Brazil", 55: "Chile",
+                    56: "Colombia", 57: "Ecuador", 58: "Paraguay", 59: "Peru", 60: "Uruguay",
+                    61: "Venezuela", 70: "Canada", 72: "Costa Rica", 76: "El Salvador",
+                    78: "Guatemala", 81: "Honduras", 82: "Jamaica", 83: "Mexico", 87: "Panama",
+                    93: "Trinidad and Tobago", 95: "United States",
+                    97: "Algeria", 98: "Angola", 99: "Benin", 101: "Burkina Faso",
+                    102: "Burundi", 103: "Cameroon", 104: "Cape Verde", 107: "Comoros",
+                    108: "Congo", 109: "Ivory Coast", 110: "DR Congo", 112: "Egypt",
+                    113: "Equatorial Guinea", 116: "Gabon", 117: "Gambia", 118: "Ghana",
+                    119: "Guinea", 120: "Guinea-Bissau", 121: "Kenya", 127: "Mali",
+                    128: "Mauritania", 130: "Morocco", 131: "Mozambique", 134: "Nigeria",
+                    137: "Senegal", 139: "Sierra Leone", 141: "South Africa", 144: "Tanzania",
+                    145: "Togo", 146: "Tunisia", 147: "Uganda", 148: "Zambia", 149: "Zimbabwe",
+                    151: "Australia", 157: "China PR", 161: "India", 163: "Iran", 164: "Iraq",
+                    165: "Japan", 185: "South Korea", 192: "UAE", 200: "New Zealand",
+                    207: "Kosovo", 208: "Curaçao", 209: "Gibraltar", 210: "South Sudan", 211: "Montenegro",
+                }
+                nationality_name = NATIONALITY_MAP.get(p.get("enmm"))
+
                 player_data = dict(
                     career_id=career.id,
                     game_id=game_id,
                     first_name="",
                     last_name="",
                     known_name=name_str,
+                    position=primary_pos,
+                    secondary_positions=secondary_pos,
+                    birth_year=birth_year_val,
+                    nationality=nationality_name,
                     overall=p.get("UERs"),
                     potential=p.get("mpuH"),
                     gender=p.get("EveZ"),
@@ -387,6 +457,30 @@ class ImportService:
             if new_players:
                 self.db.add_all(new_players)
             self.db.commit()
+
+            # --- Mini-scrape: resolve names for top 100 unresolved real players ---
+            import time
+            unresolved = self.db.query(Player).filter(
+                Player.career_id == career.id,
+                Player.game_id < 280000,
+                (Player.known_name.like('Player #%')) | (Player.known_name == '') | (Player.known_name.is_(None))
+            ).order_by(Player.overall.desc()).limit(100).all()
+            
+            if unresolved:
+                logger.info(f"Mini-scraping names for {len(unresolved)} top unresolved real players...")
+                resolved_count = 0
+                for pl in unresolved:
+                    fetched = name_resolver.fetch_from_fifacm(pl.game_id)
+                    if fetched:
+                        # Update ALL copies of this player across all careers
+                        self.db.query(Player).filter(
+                            Player.game_id == pl.game_id
+                        ).update({Player.known_name: fetched})
+                        resolved_count += 1
+                    time.sleep(0.05)  # Rate limit
+                self.db.commit()
+                name_resolver.save_cache()
+                logger.info(f"Mini-scrape resolved {resolved_count}/{len(unresolved)} player names.")
 
             # Now save the pending transfers and generate timeline events
             if pending_transfers:

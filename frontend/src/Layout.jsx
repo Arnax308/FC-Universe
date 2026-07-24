@@ -6,6 +6,9 @@ export default function Layout() {
   const [career, setCareer] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const fetchCareers = (selectId = null) => {
     fetch('/api/careers')
@@ -33,9 +36,11 @@ export default function Layout() {
             setCareer(null);
           }
         }
+        setInitialLoading(false);
       })
       .catch(err => {
         console.error("Failed to fetch careers:", err);
+        setInitialLoading(false);
       });
   };
 
@@ -54,10 +59,48 @@ export default function Layout() {
     fetchCareers(selectId);
   };
 
+  if (initialLoading) {
+    return (
+      <div className="fixed inset-0 z-[200] bg-surface flex flex-col items-center justify-center p-6 select-none overflow-hidden">
+        <div className="ambient-blur-emerald"></div>
+        <div className="ambient-blur-blue"></div>
+        
+        <div className="relative flex flex-col items-center text-center space-y-6 max-w-sm">
+          {/* Animated Glow Logo Icon */}
+          <div className="relative w-20 h-20 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping"></div>
+            <div className="w-20 h-20 rounded-full bg-surface-container border border-primary/30 shadow-[0_0_40px_rgba(78,222,163,0.3)] flex items-center justify-center backdrop-blur-xl">
+              <span className="material-symbols-outlined text-primary text-4xl animate-pulse">sports_soccer</span>
+            </div>
+          </div>
+
+          <div>
+            <h1 className="text-headline-lg font-headline-lg font-black tracking-tighter text-primary drop-shadow-[0_0_20px_rgba(78,222,163,0.4)]">
+              FC UNIVERSE
+            </h1>
+            <p className="text-body-md text-on-surface-variant mt-1.5 font-medium">Initializing Career Mode Engine...</p>
+          </div>
+
+          {/* Sleek Loading Bar */}
+          <div className="w-64 h-1.5 bg-surface-container rounded-full overflow-hidden border border-white/10 relative">
+            <div className="h-full bg-gradient-to-r from-primary via-tertiary to-primary w-full animate-pulse shadow-[0_0_15px_rgba(78,222,163,0.8)]"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="ambient-blur-emerald"></div>
       <div className="ambient-blur-blue"></div>
+
+      {/* Global Top Loading Bar during Save Sync / Import operations */}
+      {isImporting && (
+        <div className="fixed top-0 left-0 right-0 z-[100] h-1.5 bg-surface-container overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-primary via-tertiary to-primary w-full animate-pulse shadow-[0_0_12px_rgba(78,222,163,0.8)]"></div>
+        </div>
+      )}
 
       <nav className="hidden md:flex bg-surface-container/40 dark:bg-surface-container/40 backdrop-blur-2xl border-r border-white/10 shadow-xl fixed left-0 top-0 h-screen flex-col pt-24 pb-8 z-40 w-72 transition-all duration-300 ease-in-out">
         <div className="px-6 mb-8">
@@ -109,6 +152,12 @@ export default function Layout() {
           <a className="text-headline-md font-headline-md font-black tracking-tighter text-primary dark:text-primary hover:text-white/5 dark:hover:text-white/10 transition-colors" href="#">
               FC UNIVERSE
           </a>
+          {isImporting && (
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold animate-pulse">
+              <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
+              {importMessage || "Syncing save data in background..."}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-6">
           <div className="hidden md:flex relative group mr-4">
@@ -172,7 +221,7 @@ export default function Layout() {
       </header>
 
       <div className="pt-28 pb-12 px-container-padding md:ml-72 relative z-10 max-w-max-width-desktop mx-auto">
-        <Outlet context={{ career, searchQuery, refreshCareers }} />
+        <Outlet context={{ career, searchQuery, refreshCareers, setIsImporting, setImportMessage, isImporting }} />
       </div>
     </>
   );

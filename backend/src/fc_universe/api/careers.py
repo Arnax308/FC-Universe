@@ -40,9 +40,8 @@ def list_local_saves(db: Session = Depends(get_db)):
             # Generate MD5 hash of filename stem to get expected save identifier
             save_id = hashlib.md5(file.stem.encode()).hexdigest()
             
-            # Read fully parsed information from save file to get correct manager and team names
-            parsed = parser.parse(file)
-            header_info = parsed.header
+            # Read quick header information from save file (instant <1ms read)
+            header_info = parser.read_header(file)
             
             # Check if already imported
             imported = db.query(Career).filter(Career.save_identifier == save_id).first() is not None

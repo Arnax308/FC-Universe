@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 
 export default function Dashboard() {
-  const { career, refreshCareers } = useOutletContext();
+  const { career, refreshCareers, setIsImporting, setImportMessage, isImporting: globalImporting } = useOutletContext();
   const [localSaves, setLocalSaves] = useState([]);
   const [loadingSaves, setLoadingSaves] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -34,13 +34,6 @@ export default function Dashboard() {
     if (!career) return;
     setStatsLoading(true);
     
-    // Fetch stats for active career
-    const pClubs = fetch(`/api/careers/${career.id}/clubs?limit=1`).then(res => res.headers.get("x-total-count") || "1652"); // Mock default fallback or header count
-    const pPlayers = fetch(`/api/careers/${career.id}/players?limit=1`).then(res => res.headers.get("x-total-count") || "21879");
-    const pTransfers = fetch(`/api/careers/${career.id}/transfers?limit=1`).then(res => res.json()).then(data => data.length);
-    const pTimeline = fetch(`/api/careers/${career.id}/timeline?limit=1`).then(res => res.json()).then(data => data.length);
-    
-    // Better yet, just fetch from actual list responses or custom counts. Since we are listing, let's make quick calls.
     Promise.all([
       fetch(`/api/careers/${career.id}/clubs?limit=1000`).then(res => res.json()),
       fetch(`/api/careers/${career.id}/players?limit=1000`).then(res => res.json()),
@@ -49,8 +42,8 @@ export default function Dashboard() {
     ])
       .then(([clubsData, playersData, transfersData, timelineData]) => {
         setStats({
-          clubs: clubsData.length >= 1000 ? "1,650+" : clubsData.length,
-          players: playersData.length >= 1000 ? "21,000+" : playersData.length,
+          clubs: clubsData.length,
+          players: playersData.length,
           transfers: transfersData.length,
           timeline: timelineData.length
         });
@@ -73,15 +66,37 @@ export default function Dashboard() {
   }, [career]);
 
   const handleImport = (path) => {
-    setImporting(true);
-    setImportStatus({ success: null, message: "Ingesting Frostbite chunks and restoring universe history..." });
+    if (importing || globalImporting) return;
     
+    setImporting(true);
+    if (setIsImporting) setIsImporting(true);
+    if (setImportMessage) setImportMessage("Parsing save file...");
+    
+    setImportStatus({ success: null, message: "Ingesting Frostbite chunks and parsing career save..." });
+
+    // Phase 1 message update after 2s
+    const t1 = setTimeout(() => {
+      if (setImportMessage) setImportMessage("Parsing player databases & resolving names...");
+      setImportStatus({ success: null, message: "Parsing player databases & resolving names..." });
+    }, 2000);
+
+    // Phase 2 message update after 5s
+    const t2 = setTimeout(() => {
+      if (setImportMessage) setImportMessage("Building career timeline & transfers...");
+      setImportStatus({ success: null, message: "Building career timeline & transfers..." });
+    }, 5000);
+
     fetch(`/api/import?file_path=${encodeURIComponent(path)}&team_offset=${teamOffset}`, {
       method: 'POST',
     })
       .then(res => res.json())
       .then(json => {
+        clearTimeout(t1);
+        clearTimeout(t2);
         setImporting(false);
+        if (setIsImporting) setIsImporting(false);
+        if (setImportMessage) setImportMessage("");
+
         if (json.success) {
           setImportStatus({ success: true, message: `Successfully imported universe: "${json.data.name}"!` });
           
@@ -97,7 +112,11 @@ export default function Dashboard() {
         }
       })
       .catch(err => {
+        clearTimeout(t1);
+        clearTimeout(t2);
         setImporting(false);
+        if (setIsImporting) setIsImporting(false);
+        if (setImportMessage) setImportMessage("");
         setImportStatus({ success: false, message: `Request failed: ${err.message}` });
       });
   };

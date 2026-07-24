@@ -17,9 +17,26 @@ class NameResolver:
         self.cache_path = Path(__file__).parent.parent / "data" / cache_file
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self.name_cache = {}
+        self.master_players = {}
         self.base_name_map = {}
+        self._load_master_players()
         self._load_cache()
         self._load_base_names()
+
+    def _load_master_players(self):
+        json_path = Path(__file__).parent.parent / "data" / "master_players.json"
+        if not json_path.exists():
+            return
+        try:
+            import json
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for gid_str, entry in data.items():
+                    if isinstance(entry, dict) and entry.get("name"):
+                        self.master_players[int(gid_str)] = entry["name"]
+            logger.info(f"Loaded {len(self.master_players)} master player names")
+        except Exception as e:
+            logger.error(f"Failed to load master_players.json: {e}")
 
     def _load_base_names(self):
         csv_path = Path(__file__).parent.parent.parent.parent.parent / "parser_repo" / "fc-cm-web-parser-main" / "public" / "playernames.csv"
@@ -83,20 +100,42 @@ class NameResolver:
         return None
 
     def resolve_name(self, game_id: int, first_id: int, last_id: int, common_id: int, dc_names: dict) -> str:
-        """Resolve a player's name using cache and DC names (bneD)."""
-        # 1. Check local cache (contains resolved names for real players)
-        if game_id in self.name_cache:
+        """Resolve a player's name using cache and DC names (bneD).
+        
+        Strategy:
+        - Real players (game_id < 280000): use name cache only. If not cached,
+          return empty string and let the background scraper fill it in.
+        - Generated players (game_id >= 280000): use dc_names (bneD) + playernames.csv
+          to build composite first/last/common name.
+        """
+        # 1. Check master players dataset (single source of truth for real players)
+        if game_id in self.master_players and self.master_players[game_id]:
+            return self.master_players[game_id]
+
+        # 2. Check local cache (contains resolved names for real players)
+        if game_id in self.name_cache and self.name_cache[game_id]:
             return self.name_cache[game_id]
             
-        # 2. Only resolve from playernames.csv if it's a generated player.
-        # Real players are resolved from cache or background scraped from FUT.GG.
-        is_gen = (50000 <= game_id < 100000) or (first_id in dc_names) or (last_id in dc_names) or (common_id in dc_names)
-        if is_gen:
+        # 3. For real players not in master or cache: try to fetch from FUT.GG on the fly
+        if game_id < 280000:
+            fetched_name = self.fetch_from_fifacm(game_id)
+            if fetched_name:
+                return fetched_name
+            return f"Player #{game_id}"
+
+        # 3. For generated/youth players (game_id >= 280000): use dc_names (bneD) + playernames.csv
+        if game_id >= 280000:
             first = dc_names.get(first_id) or self.base_name_map.get(first_id, "") if first_id else ""
             last = dc_names.get(last_id) or self.base_name_map.get(last_id, "") if last_id else ""
             common = dc_names.get(common_id) or self.base_name_map.get(common_id, "") if common_id else ""
             
             if first or last or common:
-                return common if common else f"{first} {last}".strip()
+                # Insert spaces into camelCase names like JongEun -> Jong Eun
+                first = re.sub(r'([a-z])([A-Z])', r'\1 \2', first)
+                last = re.sub(r'([a-z])([A-Z])', r'\1 \2', last)
+                common = re.sub(r'([a-z])([A-Z])', r'\1 \2', common)
+                
+                full_name = common if common else f"{first} {last}".strip()
+                return full_name
             
-        return ""
+        return f"Youth Player #{game_id}"

@@ -99,7 +99,7 @@ export default function Players() {
           {players.map(player => (
             <Link to={`/players/${player.id}`} key={player.id} className="block group">
               <div className="bg-surface-container/60 backdrop-blur-2xl border border-white/5 rounded-2xl p-4 flex items-center gap-4 hover:bg-white/5 transition-all cursor-pointer h-full border border-transparent group-hover:border-primary/30 group-hover:shadow-[0_0_15px_rgba(78,222,163,0.1)]">
-                <div className="relative">
+                <div className="relative w-16 h-16 flex-shrink-0">
                   <img
                     src={getMinifaceUrl(player.game_id)}
                     alt={player.known_name || player.last_name}
@@ -110,11 +110,11 @@ export default function Players() {
                       e.target.nextElementSibling.style.display = 'flex';
                     }}
                   />
-                  <div className="hidden w-16 h-16 rounded-full bg-surface-container/50 border border-white/10 items-center justify-center text-on-surface-variant absolute top-0 left-0 z-0">
+                  <div className="hidden w-16 h-16 rounded-full bg-surface-container/50 border border-white/10 items-center justify-center text-on-surface-variant absolute inset-0 z-0">
                     <span className="material-symbols-outlined text-3xl">person</span>
                   </div>
                   {player.overall && (
-                    <div className="absolute -bottom-2 -right-2 bg-primary text-on-primary text-xs font-bold px-1.5 py-0.5 rounded shadow-lg border border-primary-fixed-dim">
+                    <div className="absolute -bottom-1 -right-1 z-10 bg-primary text-on-primary text-xs font-bold px-1.5 py-0.5 rounded shadow-lg border border-primary-fixed-dim pointer-events-none">
                       {player.overall}
                     </div>
                   )}
@@ -125,14 +125,20 @@ export default function Players() {
                       <h3 className="text-on-surface font-headline-md text-body-lg truncate">
                         {player.known_name || `${player.first_name || ''} ${player.last_name || ''}`}
                       </h3>
-                      {player.game_id >= 270000 && (
-                        <span className="bg-primary/10 text-primary text-[10px] font-semibold px-2 py-0.5 rounded-full border border-primary/20 whitespace-nowrap self-center">
-                          Youth
+                      {player.player_type === 'youth' && (
+                        <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/20 whitespace-nowrap self-center">
+                          Youth Academy
+                        </span>
+                      )}
+                      {player.player_type === 'regen' && (
+                        <span className="bg-purple-500/10 text-purple-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-purple-500/20 whitespace-nowrap self-center">
+                          Regen
                         </span>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-2 text-on-surface-variant text-label-caps font-label-caps mt-0.5 items-center">
-                      {player.position && <span className="bg-white/5 px-2 py-0.5 rounded text-[10px]">{player.position}</span>}
+                      {player.position && <span className="bg-white/5 px-2 py-0.5 rounded text-[10px] font-bold text-on-surface">{player.position}</span>}
+                      {player.secondary_positions && <span className="text-[10px] text-on-surface-variant/80">({player.secondary_positions})</span>}
                       {player.potential && <span className="text-tertiary font-bold">POT {player.potential}</span>}
                       {player.club_name && <span className="text-secondary font-bold">• {player.club_name}</span>}
                     </div>

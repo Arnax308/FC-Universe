@@ -64,6 +64,14 @@ def create_tables():
                 cursor.execute("ALTER TABLE timeline_events ADD COLUMN gender INTEGER DEFAULT 0")
                 conn.commit()
                 print("Database migration: Added 'gender' column to 'timeline_events' table successfully.")
+            
+            cursor.execute("PRAGMA table_info(players)")
+            p_cols = [col[1] for col in cursor.fetchall()]
+            if p_cols and "player_type" not in p_cols:
+                cursor.execute("ALTER TABLE players ADD COLUMN player_type VARCHAR(20) DEFAULT 'real'")
+                cursor.execute("UPDATE players SET player_type = 'youth' WHERE game_id >= 280000")
+                conn.commit()
+                print("Database migration: Added 'player_type' column to 'players' table successfully.")
             conn.close()
         except Exception as e:
             print(f"Migration warning: Failed to check/add gender column: {e}")

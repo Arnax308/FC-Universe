@@ -19,25 +19,27 @@ def main():
     
     resolver = NameResolver()
     
-    # Get players needing names (excluding generated players 50K-100K), ordered by overall descending
+    # Get DISTINCT unresolved real players (game_id < 280000), ordered by overall desc.
+    # We use DISTINCT game_id to avoid scraping the same player multiple times across careers.
     cursor.execute("""
-        SELECT id, game_id, known_name 
+        SELECT DISTINCT game_id, MAX(overall) as max_ovr
         FROM players 
-        WHERE (known_name = '' OR known_name IS NULL OR known_name LIKE 'Player #%' OR known_name LIKE 'Youth Player #%')
-          AND NOT (game_id >= 50000 AND game_id < 100000)
-        ORDER BY overall DESC 
-        LIMIT 500
+        WHERE (known_name = '' OR known_name IS NULL OR known_name LIKE 'Player #%')
+          AND game_id < 280000
+        GROUP BY game_id
+        ORDER BY max_ovr DESC 
+        LIMIT 1000
     """)
     players = cursor.fetchall()
     
-    print(f"Fetching names for {len(players)} players via NameResolver...")
+    print(f"Fetching names for {len(players)} unique real players via NameResolver...")
     count = 0
-    for idx, (db_id, game_id, known_name) in enumerate(players):
+    for idx, (game_id, max_ovr) in enumerate(players):
         # Fetch using standard NameResolver method which caches to CSV automatically
         real_name = resolver.fetch_from_fifacm(game_id)
         if real_name:
-            # Update SQLite DB
-            cursor.execute("UPDATE players SET known_name = ? WHERE id = ?", (real_name, db_id))
+            # Update ALL rows with this game_id across ALL careers
+            cursor.execute("UPDATE players SET known_name = ? WHERE game_id = ?", (real_name, game_id))
             conn.commit()
             count += 1
             print(f"[{idx+1}/{len(players)}] {game_id} -> Success ({real_name})")
@@ -47,7 +49,8 @@ def main():
         time.sleep(0.05)
         
     resolver.save_cache()
-    print(f"Finished. Updated {count} players in DB and saved cache.")
+    print(f"Finished. Updated {count} players (all career copies) in DB and saved cache.")
 
 if __name__ == "__main__":
     main()
+

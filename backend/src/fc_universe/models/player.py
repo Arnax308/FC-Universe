@@ -25,6 +25,7 @@ class Player(Base):
     known_name: Mapped[str | None] = mapped_column(String(100))
     position: Mapped[str | None] = mapped_column(String(20))
     secondary_positions: Mapped[str | None] = mapped_column(String(100))
+    player_type: Mapped[str | None] = mapped_column(String(20), default="real")
     nationality: Mapped[str | None] = mapped_column(String(100))
     birth_year: Mapped[int | None] = mapped_column(Integer)
     overall: Mapped[int | None] = mapped_column(Integer)
