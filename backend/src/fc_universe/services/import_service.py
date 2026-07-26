@@ -85,11 +85,48 @@ class ImportService:
             career.save_file_path = parsed_data.header.file_path
             self.db.commit()
 
-        # 1b. Import Competitions/Leagues (onMQ)
+        # 1b. Import Competitions/Leagues (onMQ & CUP_COMPETITIONS)
         raw_leagues = parsed_data.raw_tables.get("onMQ", [])
         existing_comps = {
             c.game_id: c for c in self.db.query(Competition).filter(Competition.career_id == career.id).all()
         }
+        
+        # Built-in cup & tournament competition dictionary
+        CUP_COMPETITIONS = {
+            135: ("UEFA Champions League", "continental"),
+            136: ("UEFA Europa League", "continental"),
+            223: ("UEFA Conference League", "continental"),
+            1335: ("Copa del Rey", "cup"),
+            5335: ("Copa del Rey", "cup"),
+            1327: ("Supercopa de España", "cup"),
+            1313: ("FA Cup", "cup"),
+            5313: ("FA Cup", "cup"),
+            1314: ("EFL Cup (Carabao)", "cup"),
+            5314: ("EFL Cup (Carabao)", "cup"),
+            1319: ("DFB-Pokal", "cup"),
+            5319: ("DFB-Pokal", "cup"),
+            1331: ("Coppa Italia", "cup"),
+            5331: ("Coppa Italia", "cup"),
+            1316: ("Coupe de France", "cup"),
+            5316: ("Coupe de France", "cup"),
+            139: ("FIFA Club World Cup", "continental"),
+        }
+        
+        for c_id, (c_name, c_type) in CUP_COMPETITIONS.items():
+            comp = existing_comps.get(c_id)
+            if not comp:
+                comp = Competition(
+                    career_id=career.id,
+                    game_id=c_id,
+                    name=c_name,
+                    type=c_type,
+                    country=""
+                )
+                self.db.add(comp)
+                existing_comps[c_id] = comp
+            else:
+                comp.name = c_name
+
         for l in raw_leagues:
             l_id = l.get("aQrQ")
             l_name = l.get("HEQX")
