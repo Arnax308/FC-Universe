@@ -83,41 +83,22 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
         ManagerSeasonHistory.career_id == career_id
     ).order_by(ManagerSeasonHistory.season_number).all()
     
-    # Filter out empty 0-match placeholder rows unless there are no rows with matches
-    active_history = [h for h in history_rows if (h.matches or 0) > 0]
-    if not active_history and history_rows:
-        active_history = history_rows
-    
-    # --- All trophy events in this career ---
-    all_trophies = db.query(TimelineEvent).filter(
-        TimelineEvent.career_id == career_id,
-        TimelineEvent.event_type == "trophy"
-    ).all()
-    
-    # --- Manager Awards ---
-    all_awards = db.query(Award).filter(Award.career_id == career_id).all()
-    
-    # --- Build Club Journey from history ---
-    # Group consecutive seasons at the same club
-    club_journey = []
-    current_club_game_id = None
+    # --- Group consecutive seasons in zgrE into tenures ---
+    raw_tenures = []
     current_tenure = None
     
-    for h in active_history:
-        season_year = 2025 + ((h.season_number or 1) - 1)
+    for idx, h in enumerate(history_rows):
+        season_year = 2025 + ((h.season_number or (idx + 1)) - 1)
         
-        if h.club_game_id != current_club_game_id:
-            # New tenure
+        if current_tenure is None or current_tenure["club_game_id"] != h.club_game_id:
             if current_tenure:
-                club_journey.append(current_tenure)
+                raw_tenures.append(current_tenure)
             
-            # Resolve club info (by game_id across any season)
             club_obj = db.query(Club).filter(
                 Club.career_id == career_id,
                 Club.game_id == h.club_game_id
             ).first() if h.club_game_id else None
             
-            current_club_game_id = h.club_game_id
             current_tenure = {
                 "club_name": club_obj.name if club_obj else f"Club #{h.club_game_id}",
                 "club_game_id": h.club_game_id,
@@ -126,35 +107,85 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
                 "end_year": season_year,
                 "is_current": False,
                 "seasons": [],
-                "trophies": []
+                "trophies": [],
+                "total_matches": 0,
+                "total_wins": 0,
+                "total_draws": 0,
+                "total_losses": 0,
+                "total_gf": 0,
+                "total_ga": 0,
+                "league_trophies": 0,
+                "cup_trophies": 0,
+                "euro_trophies": 0,
             }
         
-        if current_tenure:
-            current_tenure["end_year"] = season_year
-            current_tenure["seasons"].append({
-                "season_number": h.season_number,
-                "year": season_year,
-                "matches": h.matches or 0,
-                "wins": h.wins or 0,
-                "draws": h.draws or 0,
-                "losses": h.losses or 0,
-                "goals_for": h.goals_for or 0,
-                "goals_against": h.goals_against or 0,
-                "points": h.points or 0,
-                "table_position": h.table_position or 0,
-                "league_trophies": h.league_trophies or 0,
-                "cup_trophies": h.cup_trophies or 0,
-                "euro_trophies": h.euro_trophies or 0,
-            })
-    
+        current_tenure["end_year"] = season_year
+        m_val = h.matches or 0
+        w_val = h.wins or 0
+        d_val = h.draws or 0
+        l_val = h.losses or 0
+        gf_val = h.goals_for or 0
+        ga_val = h.goals_against or 0
+        
+        current_tenure["seasons"].append({
+            "season_number": h.season_number,
+            "year": season_year,
+            "matches": m_val,
+            "wins": w_val,
+            "draws": d_val,
+            "losses": l_val,
+            "goals_for": gf_val,
+            "goals_against": ga_val,
+            "points": h.points or 0,
+            "table_position": h.table_position or 0,
+        })
+        current_tenure["total_matches"] += m_val
+        current_tenure["total_wins"] += w_val
+        current_tenure["total_draws"] += d_val
+        current_tenure["total_losses"] += l_val
+        current_tenure["total_gf"] += gf_val
+        current_tenure["total_ga"] += ga_val
+        current_tenure["league_trophies"] += (h.league_trophies or 0)
+        current_tenure["cup_trophies"] += (h.cup_trophies or 0)
+        current_tenure["euro_trophies"] += (h.euro_trophies or 0)
+
     if current_tenure:
-        current_tenure["is_current"] = True  # Last tenure is active
-        club_journey.append(current_tenure)
+        raw_tenures.append(current_tenure)
     
-    # Attach trophies to each tenure by club game_id and season range
+    # Filter valid tenures: keep if total_matches > 0 OR if it matches career.team_id OR is the last tenure
+    club_journey = []
+    manager_club_game_ids = set()
+    
+    for i, t in enumerate(raw_tenures):
+        is_last = (i == len(raw_tenures) - 1)
+        is_active_team = (career.team_id and t["club_game_id"] == career.team_id)
+        
+        if t["total_matches"] > 0 or is_active_team or is_last:
+            t["is_current"] = (is_active_team or is_last)
+            club_journey.append(t)
+            if t["club_game_id"]:
+                manager_club_game_ids.add(t["club_game_id"])
+    
+    # --- All trophy timeline events for manager's clubs ---
+    manager_club_db_ids = [
+        c.id for c in db.query(Club.id).filter(
+            Club.career_id == career_id,
+            Club.game_id.in_(list(manager_club_game_ids))
+        ).all()
+    ] if manager_club_game_ids else []
+    
+    manager_trophies = db.query(TimelineEvent).filter(
+        TimelineEvent.career_id == career_id,
+        TimelineEvent.event_type == "trophy",
+        TimelineEvent.related_club_id.in_(manager_club_db_ids)
+    ).all() if manager_club_db_ids else []
+    
+    # --- Manager Awards ---
+    all_awards = db.query(Award).filter(Award.career_id == career_id).all()
+    
+    # Attach trophy items to each tenure
     for tenure in club_journey:
         if tenure["club_game_id"]:
-            # Find all db_ids for this club_game_id
             matching_club_ids = [
                 c.id for c in db.query(Club.id).filter(
                     Club.career_id == career_id,
@@ -163,7 +194,7 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
             ]
             
             tenure_events = [
-                t for t in all_trophies 
+                t for t in manager_trophies 
                 if t.related_club_id in matching_club_ids
             ]
             
@@ -171,7 +202,6 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
                 t_season = db.query(Season).filter(Season.id == t_event.season_id).first() if t_event.season_id else None
                 t_year = t_season.year if t_season else None
                 
-                # Extract clean trophy name
                 clean_name = t_event.description
                 if " have won the " in clean_name:
                     clean_name = clean_name.split(" have won the ", 1)[1]
@@ -185,16 +215,16 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
                     "category": _classify_trophy(t_event.description)
                 })
     
-    # --- Aggregate Trophy Counts ---
+    # --- Aggregate Trophy Counts (FOR MANAGER'S MANAGED CLUBS ONLY!) ---
     trophy_counts = {
         "champions_league": 0,
         "league_title": 0,
         "domestic_cup": 0,
         "europa_league": 0,
         "other": 0,
-        "total": len(all_trophies)
+        "total": len(manager_trophies)
     }
-    for t in all_trophies:
+    for t in manager_trophies:
         cat = _classify_trophy(t.description)
         if cat in trophy_counts:
             trophy_counts[cat] += 1
@@ -202,12 +232,12 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
     # --- Managerial Statistics (per club aggregate) ---
     managerial_stats = []
     for tenure in club_journey:
-        total_m = sum(s["matches"] for s in tenure["seasons"])
-        total_w = sum(s["wins"] for s in tenure["seasons"])
-        total_d = sum(s["draws"] for s in tenure["seasons"])
-        total_l = sum(s["losses"] for s in tenure["seasons"])
-        total_gf = sum(s["goals_for"] for s in tenure["seasons"])
-        total_ga = sum(s["goals_against"] for s in tenure["seasons"])
+        total_m = tenure["total_matches"]
+        total_w = tenure["total_wins"]
+        total_d = tenure["total_draws"]
+        total_l = tenure["total_losses"]
+        total_gf = tenure["total_gf"]
+        total_ga = tenure["total_ga"]
         win_pct = round((total_w / total_m * 100), 1) if total_m > 0 else 0.0
         
         tenure_label = f"{tenure['start_year']}-{str(tenure['end_year'])[2:]}"
