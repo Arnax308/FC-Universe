@@ -72,6 +72,14 @@ def create_tables():
                 cursor.execute("UPDATE players SET player_type = 'youth' WHERE game_id >= 280000")
                 conn.commit()
                 print("Database migration: Added 'player_type' column to 'players' table successfully.")
+
+            cursor.execute("PRAGMA table_info(manager_season_history)")
+            m_cols = [col[1] for col in cursor.fetchall()]
+            if m_cols:
+                for new_col in ["points", "table_position", "league_trophies", "cup_trophies", "euro_trophies"]:
+                    if new_col not in m_cols:
+                        cursor.execute(f"ALTER TABLE manager_season_history ADD COLUMN {new_col} INTEGER DEFAULT 0")
+                conn.commit()
             conn.close()
         except Exception as e:
-            print(f"Migration warning: Failed to check/add gender column: {e}")
+            print(f"Migration warning: Failed to check/add columns: {e}")
