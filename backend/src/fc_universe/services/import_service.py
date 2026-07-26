@@ -83,6 +83,9 @@ class ImportService:
             career.team_name = parsed_data.header.team_name
             career.team_id = parsed_data.header.team_id
             career.save_file_path = parsed_data.header.file_path
+            
+            # Clear existing timeline events on re-import to avoid stale/duplicate events
+            self.db.query(TimelineEvent).filter(TimelineEvent.career_id == career.id).delete()
             self.db.commit()
 
         # 1b. Import Competitions/Leagues (onMQ & CUP_COMPETITIONS)

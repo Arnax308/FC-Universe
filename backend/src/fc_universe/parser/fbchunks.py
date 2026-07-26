@@ -155,10 +155,10 @@ class FbChunksParser(SaveParser):
         team_name = valid_strings[1] if len(valid_strings) > 1 else "Unknown Club"
         manager_name = valid_strings[2] if len(valid_strings) > 2 else "Unknown Manager"
 
-        # Generate a stable identifier from the filename timestamp
-        # CmMgrC20260711160012077 → the timestamp portion is unique per career creation
-        file_stem = file_path.stem
-        save_id = hashlib.md5(file_stem.encode()).hexdigest()
+        # Generate a stable identifier from career_name + manager_name
+        # That way, different save files for the same career Mode update the same Career in DB
+        stable_str = f"{career_name}_{manager_name}".strip().lower()
+        save_id = hashlib.md5(stable_str.encode()).hexdigest()
 
         return SaveHeaderInfo(
             career_name=career_name,

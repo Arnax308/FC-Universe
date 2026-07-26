@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, Link } from 'react-router-dom';
 
 export default function Timeline() {
   const { career } = useOutletContext();
@@ -34,32 +34,60 @@ export default function Timeline() {
   }, [career, filter, genderFilter]);
 
   if (!career) {
-    return <div className="p-8 text-on-surface">Please load a career first.</div>;
+    return <div className="p-8 text-slate-400 text-center">Please select a career universe first.</div>;
   }
 
-  const getEventIcon = (type) => {
+  const getCategoryDetails = (type) => {
     switch (type) {
-      case 'season_start': return 'calendar_month';
-      case 'transfer': return 'swap_horiz';
+      case 'trophy':
+        return {
+          label: 'Trophy',
+          badgeStyle: 'bg-amber-500/10 border-amber-500/20 text-amber-400',
+          nodeStyle: 'bg-amber-400 border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.8)]',
+          icon: 'trophy',
+          actionText: 'View Trophy Details'
+        };
+      case 'award':
+        return {
+          label: 'Award',
+          badgeStyle: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
+          nodeStyle: 'bg-emerald-400 border-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.8)]',
+          icon: 'stars',
+          actionText: 'View Player Profile'
+        };
+      case 'transfer':
+        return {
+          label: 'Transfer',
+          badgeStyle: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
+          nodeStyle: 'bg-blue-400 border-blue-300 shadow-[0_0_12px_rgba(96,165,250,0.8)]',
+          icon: 'swap_horiz',
+          actionText: 'View Transfer Details'
+        };
       case 'manager_appointment':
-      case 'manager_move': return 'badge';
-      case 'award': return 'military_tech';
-      case 'retirement': return 'person_off';
-      case 'trophy': return 'trophy';
-      default: return 'info';
-    }
-  };
-
-  const getEventColor = (type) => {
-    switch (type) {
-      case 'season_start': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-      case 'transfer': return 'bg-teal-500/10 text-teal-400 border-teal-500/20';
-      case 'manager_appointment':
-      case 'manager_move': return 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
-      case 'award': return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-      case 'retirement': return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-      case 'trophy': return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
-      default: return 'bg-white/5 text-on-surface-variant border-white/10';
+      case 'manager_move':
+        return {
+          label: 'Manager',
+          badgeStyle: 'bg-purple-500/10 border-purple-500/20 text-purple-400',
+          nodeStyle: 'bg-purple-400 border-purple-300 shadow-[0_0_12px_rgba(192,132,252,0.8)]',
+          icon: 'badge',
+          actionText: 'View Manager Profile'
+        };
+      case 'season_start':
+        return {
+          label: 'Season Kickoff',
+          badgeStyle: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400',
+          nodeStyle: 'bg-indigo-400 border-indigo-300 shadow-[0_0_12px_rgba(129,140,248,0.8)]',
+          icon: 'calendar_today',
+          actionText: 'View Season Overview'
+        };
+      default:
+        return {
+          label: 'Event',
+          badgeStyle: 'bg-slate-500/10 border-slate-500/20 text-slate-400',
+          nodeStyle: 'bg-slate-400 border-slate-300 shadow-[0_0_8px_rgba(148,163,184,0.6)]',
+          icon: 'info',
+          actionText: 'View Event Details'
+        };
     }
   };
 
@@ -71,51 +99,71 @@ export default function Timeline() {
 
   const filterOptions = [
     { value: "all", label: "All Events" },
-    { value: "season_start", label: "Seasons" },
-    { value: "transfer", label: "Transfers" },
-    { value: "manager_appointment", label: "Managers" },
+    { value: "trophy", label: "Honors & Cups" },
     { value: "award", label: "Awards" },
-    { value: "trophy", label: "Honors" },
+    { value: "transfer", label: "Transfers" },
+    { value: "season_start", label: "Seasons" },
+    { value: "manager_appointment", label: "Managerial" },
   ];
 
+  // Group events by season year
+  const eventsBySeason = {};
+  events.forEach(ev => {
+    const sYear = ev.season_year || 2025;
+    if (!eventsBySeason[sYear]) {
+      eventsBySeason[sYear] = [];
+    }
+    eventsBySeason[sYear].push(ev);
+  });
+
+  const sortedSeasons = Object.keys(eventsBySeason).sort((a, b) => b - a);
+
+  let globalIndex = 0;
+
   return (
-    <div className="w-full">
-      <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+    <div className="w-full max-w-6xl mx-auto py-4 px-2 sm:px-6">
+      
+      {/* ═══════════════════ PAGE HEADER ═══════════════════ */}
+      <div className="mb-10 text-center sm:text-left flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <h1 className="text-headline-lg font-headline-md text-on-surface mb-2 tracking-tight">Timeline of History</h1>
-          <p className="text-body-lg text-on-surface-variant">The chronological history and landmarks of your {career.name} universe.</p>
+          <h1 className="text-4xl sm:text-5xl font-black text-white tracking-tight">
+            Historical Timeline
+          </h1>
+          <p className="text-slate-400 text-sm sm:text-base mt-2 max-w-2xl">
+            Track the defining moments, transfers, and triumphs that shaped the {career.name} world football.
+          </p>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3">
+        {/* Filters Bar */}
+        <div className="flex flex-col sm:flex-row gap-3 self-center md:self-end">
           {/* Gender Filter */}
-          <div className="flex bg-surface-container-high/40 p-1.5 rounded-2xl border border-white/5 backdrop-blur-md self-start">
+          <div className="flex bg-[#12161f]/80 p-1.5 rounded-2xl border border-white/10 backdrop-blur-xl">
             <button
               onClick={() => setGenderFilter("all")}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 genderFilter === "all" 
-                  ? 'bg-emerald-500/20 text-primary' 
-                  : 'text-on-surface-variant hover:text-on-surface'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md' 
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
-              All Football
+              All
             </button>
             <button
               onClick={() => setGenderFilter("men")}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 genderFilter === "men" 
-                  ? 'bg-primary text-on-primary shadow-lg' 
-                  : 'text-on-surface-variant hover:text-on-surface'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md' 
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               Men
             </button>
             <button
               onClick={() => setGenderFilter("women")}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 genderFilter === "women" 
-                  ? 'bg-primary text-on-primary shadow-lg' 
-                  : 'text-on-surface-variant hover:text-on-surface'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md' 
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               Women
@@ -123,15 +171,15 @@ export default function Timeline() {
           </div>
 
           {/* Category Filter */}
-          <div className="flex flex-wrap gap-2 bg-surface-container-high/40 p-1.5 rounded-2xl border border-white/5 backdrop-blur-md">
+          <div className="flex flex-wrap gap-1.5 bg-[#12161f]/80 p-1.5 rounded-2xl border border-white/10 backdrop-blur-xl">
             {filterOptions.map((opt) => (
               <button
                 key={opt.value}
                 onClick={() => setFilter(opt.value)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                   filter === opt.value 
-                    ? 'bg-primary text-on-primary shadow-lg' 
-                    : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
               >
                 {opt.label}
@@ -142,73 +190,104 @@ export default function Timeline() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="animate-pulse flex flex-col items-center">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-on-surface-variant text-label-caps font-label-caps">Restoring timeline logs...</p>
+        <div className="flex justify-center py-24">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-slate-400 text-xs font-bold tracking-wider uppercase">Loading Timeline Records...</p>
           </div>
         </div>
       ) : events.length === 0 ? (
-        <div className="glass-panel border border-white/5 rounded-2xl p-12 text-center max-w-2xl mx-auto shadow-2xl">
-          <span className="material-symbols-outlined text-amber-400 text-6xl mb-4 animate-pulse">info</span>
-          <h3 className="text-body-lg font-headline-md font-bold text-white mb-2">Dormant Save Detected</h3>
-          <p className="text-body-md text-on-surface-variant/80 max-w-md mx-auto mb-6">
-            This save file has not been simulated in-game yet. There are no historical activities to display.
+        <div className="bg-[#12161f]/80 border border-white/10 rounded-3xl p-12 text-center max-w-xl mx-auto shadow-2xl backdrop-blur-xl">
+          <span className="material-symbols-outlined text-amber-400 text-5xl mb-3 block">auto_stories</span>
+          <h3 className="text-xl font-bold text-white mb-2">No Timeline Events Logged</h3>
+          <p className="text-slate-400 text-xs leading-relaxed max-w-md mx-auto mb-6">
+            Simulate or play matches in your career save, then re-import to populate silverware, awards, and landmark events.
           </p>
-          <div className="bg-white/5 p-5 rounded-2xl border border-white/10 text-left text-xs text-on-surface-variant max-w-md mx-auto leading-relaxed">
-            <p className="font-bold text-white mb-2">To view timeline updates:</p>
-            <ol className="list-decimal list-inside space-y-1.5 text-on-surface-variant/95">
-              <li>Open this save file in <strong>EA SPORTS FC 26</strong>.</li>
-              <li>Simulate or play at least 1-2 weeks in your career calendar.</li>
-              <li>Save your career progress.</li>
-              <li>Go back to the Dashboard and click <strong>"Re-import / Update"</strong>.</li>
-            </ol>
-          </div>
         </div>
       ) : (
-        <div className="space-y-6">
-          {events.length <= 1 && (
-            <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 p-4 rounded-2xl text-xs leading-relaxed max-w-2xl">
-              <p className="font-bold mb-1 flex items-center gap-1">
-                <span className="material-symbols-outlined text-sm">warning</span> Dormant Save Alert
-              </p>
-              <p>Only your initial manager appointment has been recorded. To populate player transfers, player awards, and trophy timelines, simulate your career in-game for a few weeks, save, and click "Re-import / Update"!</p>
-            </div>
-          )}
-          <div className="relative border-l-2 border-white/10 ml-6 pl-8 space-y-8">
-            {events.map((ev, index) => (
-              <div key={ev.id} className="relative group animate-fade-in">
-              {/* Timeline circle indicator */}
-              <div className={`absolute -left-[50px] top-1.5 w-10 h-10 rounded-full flex items-center justify-center border-2 shadow-lg backdrop-blur-md transition-all duration-300 group-hover:scale-110 z-10 ${getEventColor(ev.event_type)}`}>
-                <span className="material-symbols-outlined text-lg">{getEventIcon(ev.event_type)}</span>
-              </div>
+        /* ═══════════════════ VERTICAL TIMELINE CONTAINER ═══════════════════ */
+        <div className="relative py-6">
+          
+          {/* Central Vertical Axis Line */}
+          <div className="absolute left-4 sm:left-1/2 top-0 bottom-0 w-0.5 bg-gradient-to-b from-emerald-500/60 via-slate-700 to-slate-800 -translate-x-1/2 z-0"></div>
 
-              {/* Event card */}
-              <div className="glass-panel border border-white/5 rounded-2xl p-5 hover:border-white/15 hover:bg-white/5 transition-all duration-300 relative overflow-hidden shadow-xl">
-                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/5 to-transparent"></div>
+          {sortedSeasons.map((seasonYear) => {
+            const seasonEvents = eventsBySeason[seasonYear];
+
+            return (
+              <div key={seasonYear} className="space-y-8 mb-12 relative z-10">
                 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                  <span className="text-xs font-bold text-primary font-data-mono uppercase tracking-wider bg-primary/10 border border-primary/20 px-2.5 py-1 rounded-full self-start">
-                    {ev.event_type.replace('_', ' ')}
-                  </span>
-                  
-                  <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                    <span className="material-symbols-outlined text-sm">schedule</span>
-                    <span>{formatTime(ev.created_at)}</span>
-                    {ev.season_year && (
-                      <span className="ml-2 bg-white/5 px-2 py-0.5 rounded border border-white/5 text-[11px] font-bold text-tertiary">
-                        Season {ev.season_year}
-                      </span>
-                    )}
+                {/* 🗓️ SEASON HEADING BADGE (CENTERED ON AXIS) */}
+                <div className="flex justify-start sm:justify-center my-6 pl-4 sm:pl-0">
+                  <div className="bg-[#12161f] border border-emerald-500/40 px-6 py-2.5 rounded-full text-white font-bold text-sm sm:text-base tracking-wide shadow-[0_0_20px_rgba(16,185,129,0.25)] flex items-center gap-2 backdrop-blur-xl">
+                    <span className="material-symbols-outlined text-emerald-400 text-lg">calendar_today</span>
+                    <span>{seasonYear} Season</span>
                   </div>
                 </div>
 
-                <p className="text-body-lg text-on-surface leading-relaxed pr-4 font-medium">{ev.description}</p>
+                {/* EVENTS IN THIS SEASON */}
+                {seasonEvents.map((ev) => {
+                  const cat = getCategoryDetails(ev.event_type);
+                  const isEven = globalIndex % 2 === 0;
+                  globalIndex++;
+
+                  return (
+                    <div 
+                      key={ev.id} 
+                      className={`relative flex flex-col sm:flex-row items-start sm:items-center ${
+                        isEven ? 'sm:flex-row-reverse' : ''
+                      }`}
+                    >
+                      {/* CARD CONTAINER (Left or Right on desktop, full width on mobile) */}
+                      <div className="w-full sm:w-1/2 pl-10 sm:pl-0 sm:px-8">
+                        <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 hover:border-emerald-500/40 rounded-2xl p-5 shadow-xl transition-all duration-300 hover:-translate-y-1 group relative overflow-hidden">
+                          
+                          {/* Card Top Row: Date & Category Pill */}
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <span className="text-[11px] font-semibold text-slate-400">
+                              {formatTime(ev.created_at) || `Season ${seasonYear}`}
+                            </span>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${cat.badgeStyle}`}>
+                              {cat.label}
+                            </span>
+                          </div>
+
+                          {/* Event Content Row */}
+                          <div className="flex items-start gap-3">
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border ${cat.badgeStyle}`}>
+                              <span className="material-symbols-outlined text-base">{cat.icon}</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-base font-bold text-white group-hover:text-emerald-400 transition-colors leading-snug">
+                                {ev.description}
+                              </h3>
+                            </div>
+                          </div>
+
+                          {/* Footer Link / Action */}
+                          <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-xs font-bold text-emerald-400 group-hover:text-emerald-300">
+                            <span className="flex items-center gap-1.5">
+                              {cat.actionText}
+                              <span className="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* GLOWING DOT ON CENTRAL AXIS */}
+                      <div className="absolute left-4 sm:left-1/2 top-6 sm:top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 bg-slate-900 z-20 flex items-center justify-center">
+                        <div className={`w-2.5 h-2.5 rounded-full ${cat.nodeStyle}`}></div>
+                      </div>
+
+                      {/* SPACER FOR OPPOSITE SIDE ON DESKTOP */}
+                      <div className="hidden sm:block w-1/2"></div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
-      </div>
       )}
     </div>
   );
