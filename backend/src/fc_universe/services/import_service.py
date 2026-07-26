@@ -866,7 +866,12 @@ class ImportService:
             self.db.commit()
 
         # 9. Generate Competition Trophy Winner Events (from standings qdZF AND competition progress NgwF)
-        # NgwF (career_competitionprogress) stores cup & league winners (hasteamwon / SDel == 1)
+        # Filter: Only log events for clubs managed by the user OR major continental/world trophies (e.g. Champions League)
+        raw_zgre_teams = parsed_data.raw_tables.get("zgrE", [])
+        managed_team_game_ids = {r.get("mCXg") for r in raw_zgre_teams if r.get("mCXg") is not None}
+        if career.team_id:
+            managed_team_game_ids.add(career.team_id)
+
         raw_progress = parsed_data.raw_tables.get("NgwF", [])
         if raw_progress:
             for p in raw_progress:
@@ -880,6 +885,13 @@ class ImportService:
                     comp = existing_comps.get(c_id)
                     
                     if club and comp:
+                        is_user_club = (t_id in managed_team_game_ids)
+                        is_major_continental = (c_id in (135, 136, 139, 223))
+                        
+                        # Skip deterministic background AI events for minor AI clubs
+                        if not is_user_club and not is_major_continental:
+                            continue
+                            
                         # Resolve season object
                         season_year = 2025 + (s_num - 1) if s_num else (active_season.year if active_season else 2025)
                         season_obj = self.db.query(Season).filter(
@@ -917,12 +929,6 @@ class ImportService:
                     user_club = club
                     break
             user_league = user_club.league if user_club else None
-            
-            major_keywords = [
-                "premier league", "la liga", "laliga", "serie a", "bundesliga",
-                "ligue 1", "champions league", "wsl", "liga f", "nwsl", "women's super league",
-                "world cup", "copa america", "euro", "uefa"
-            ]
 
             for s in raw_standings:
                 t_id = s.get("mCXg")
@@ -934,11 +940,12 @@ class ImportService:
                     comp = existing_comps.get(l_id)
                     
                     if club and comp:
+                        is_user_club = (t_id in managed_team_game_ids)
                         comp_name = comp.name or ""
-                        is_major = (user_league and comp_name.lower() == user_league.lower()) or \
-                                   any(kw in comp_name.lower() for kw in major_keywords)
+                        is_user_active_league = bool(user_league and comp_name.lower() == user_league.lower())
                         
-                        if not is_major:
+                        # Only log standings winner if it's the user's club or user's active league
+                        if not is_user_club and not is_user_active_league:
                             continue
                             
                         event_desc = f"{club.name} have won the {comp.name} title in the {active_season.year} season!"
