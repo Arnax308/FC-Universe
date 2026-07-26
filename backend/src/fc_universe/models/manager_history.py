@@ -32,6 +32,11 @@ class ManagerSeasonHistory(Base):
     losses: Mapped[int | None] = mapped_column(Integer, default=0)
     goals_for: Mapped[int | None] = mapped_column(Integer, default=0)
     goals_against: Mapped[int | None] = mapped_column(Integer, default=0)
+    points: Mapped[int | None] = mapped_column(Integer, default=0)
+    table_position: Mapped[int | None] = mapped_column(Integer, default=0)
+    league_trophies: Mapped[int | None] = mapped_column(Integer, default=0)
+    cup_trophies: Mapped[int | None] = mapped_column(Integer, default=0)
+    euro_trophies: Mapped[int | None] = mapped_column(Integer, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

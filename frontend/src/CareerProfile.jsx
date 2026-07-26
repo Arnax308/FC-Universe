@@ -82,8 +82,10 @@ export default function CareerProfile() {
     career_start, career_end, total_seasons,
     total_trophies, trophy_counts,
     career_matches, career_wins, career_win_pct,
-    awards_count, club_journey, mastermind_stats
+    awards_count, club_journey, managerial_stats: raw_mgr_stats, mastermind_stats: raw_mm_stats
   } = profile;
+
+  const stats_list = raw_mgr_stats || raw_mm_stats || [];
 
   return (
     <div className="w-full max-w-7xl mx-auto py-2 px-2 sm:px-4 space-y-8">
@@ -282,19 +284,19 @@ export default function CareerProfile() {
         )}
       </div>
 
-      {/* ═══════════════════ MASTERMIND STATISTICS ═══════════════════ */}
+      {/* ═══════════════════ MANAGERIAL STATISTICS ═══════════════════ */}
       <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-xl">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <span className="material-symbols-outlined text-emerald-400">analytics</span>
-              Mastermind Statistics
+              Managerial Statistics
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">Career cumulative analysis by tenure</p>
           </div>
         </div>
 
-        {mastermind_stats.length === 0 ? (
+        {stats_list.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm italic">
             <span className="material-symbols-outlined text-3xl text-slate-600 block mb-2">table_chart</span>
             No statistics available. Re-sync your save to populate data.
@@ -316,11 +318,11 @@ export default function CareerProfile() {
                 </tr>
               </thead>
               <tbody>
-                {mastermind_stats.map((stat, idx) => (
+                {stats_list.map((stat, idx) => (
                   <tr 
                     key={idx} 
                     className={`border-b border-white/5 hover:bg-white/[0.03] transition-colors ${
-                      idx === mastermind_stats.length - 1 ? 'bg-emerald-500/5' : ''
+                      idx === stats_list.length - 1 ? 'bg-emerald-500/5' : ''
                     }`}
                   >
                     <td className="py-3.5 px-3">
@@ -361,19 +363,19 @@ export default function CareerProfile() {
                   </td>
                   <td className="py-3.5 px-2 text-center text-white font-black">{career_matches}</td>
                   <td className="py-3.5 px-2 text-center text-emerald-400 font-black">
-                    {mastermind_stats.reduce((a, s) => a + s.wins, 0)}
+                    {stats_list.reduce((a, s) => a + s.wins, 0)}
                   </td>
                   <td className="py-3.5 px-2 text-center text-slate-400 font-bold">
-                    {mastermind_stats.reduce((a, s) => a + s.draws, 0)}
+                    {stats_list.reduce((a, s) => a + s.draws, 0)}
                   </td>
                   <td className="py-3.5 px-2 text-center text-red-400 font-bold">
-                    {mastermind_stats.reduce((a, s) => a + s.losses, 0)}
+                    {stats_list.reduce((a, s) => a + s.losses, 0)}
                   </td>
                   <td className="py-3.5 px-2 text-center text-white font-bold">
-                    {mastermind_stats.reduce((a, s) => a + s.goals_for, 0)}
+                    {stats_list.reduce((a, s) => a + s.goals_for, 0)}
                   </td>
                   <td className="py-3.5 px-2 text-center text-slate-400 font-bold">
-                    {mastermind_stats.reduce((a, s) => a + s.goals_against, 0)}
+                    {stats_list.reduce((a, s) => a + s.goals_against, 0)}
                   </td>
                   <td className={`py-3.5 px-3 text-right font-black ${
                     career_win_pct >= 60 ? 'text-emerald-400' : career_win_pct >= 40 ? 'text-amber-400' : 'text-red-400'

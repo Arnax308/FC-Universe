@@ -66,7 +66,7 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
     """Get the full career profile for the Legacy Hub screen.
     
     Returns manager info, trophy summary, club journey with tenure dates,
-    and season-by-season mastermind statistics.
+    and season-by-season managerial statistics.
     """
     career = db.query(Career).filter(Career.id == career_id).first()
     if not career:
@@ -78,10 +78,15 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
     start_year = min(season_years) if season_years else 2025
     end_year = max(season_years) if season_years else 2025
     
-    # --- Manager Career History (from AGmV) ---
+    # --- Manager Career History (from zgrE) ---
     history_rows = db.query(ManagerSeasonHistory).filter(
         ManagerSeasonHistory.career_id == career_id
     ).order_by(ManagerSeasonHistory.season_number).all()
+    
+    # Filter out empty 0-match placeholder rows unless there are no rows with matches
+    active_history = [h for h in history_rows if (h.matches or 0) > 0]
+    if not active_history and history_rows:
+        active_history = history_rows
     
     # --- All trophy events in this career ---
     all_trophies = db.query(TimelineEvent).filter(
@@ -98,22 +103,15 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
     current_club_game_id = None
     current_tenure = None
     
-    # Also build a map: club_id -> list of trophy events
-    club_id_to_trophies = {}
-    for t in all_trophies:
-        if t.related_club_id not in club_id_to_trophies:
-            club_id_to_trophies[t.related_club_id] = []
-        club_id_to_trophies[t.related_club_id].append(t)
-    
-    for h in history_rows:
-        season_year = 2025 + (h.season_number or 0)
+    for h in active_history:
+        season_year = 2025 + ((h.season_number or 1) - 1)
         
         if h.club_game_id != current_club_game_id:
             # New tenure
             if current_tenure:
                 club_journey.append(current_tenure)
             
-            # Resolve club info
+            # Resolve club info (by game_id across any season)
             club_obj = db.query(Club).filter(
                 Club.career_id == career_id,
                 Club.game_id == h.club_game_id
@@ -123,7 +121,6 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
             current_tenure = {
                 "club_name": club_obj.name if club_obj else f"Club #{h.club_game_id}",
                 "club_game_id": h.club_game_id,
-                "club_id": club_obj.id if club_obj else None,
                 "league": club_obj.league if club_obj else None,
                 "start_year": season_year,
                 "end_year": season_year,
@@ -135,6 +132,7 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
         if current_tenure:
             current_tenure["end_year"] = season_year
             current_tenure["seasons"].append({
+                "season_number": h.season_number,
                 "year": season_year,
                 "matches": h.matches or 0,
                 "wins": h.wins or 0,
@@ -142,27 +140,50 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
                 "losses": h.losses or 0,
                 "goals_for": h.goals_for or 0,
                 "goals_against": h.goals_against or 0,
+                "points": h.points or 0,
+                "table_position": h.table_position or 0,
+                "league_trophies": h.league_trophies or 0,
+                "cup_trophies": h.cup_trophies or 0,
+                "euro_trophies": h.euro_trophies or 0,
             })
     
     if current_tenure:
-        current_tenure["is_current"] = True  # Last tenure is current
+        current_tenure["is_current"] = True  # Last tenure is active
         club_journey.append(current_tenure)
     
-    # Attach trophies to each tenure
+    # Attach trophies to each tenure by club game_id and season range
     for tenure in club_journey:
-        club_db_id = tenure.get("club_id")
-        if club_db_id and club_db_id in club_id_to_trophies:
-            for t_event in club_id_to_trophies[club_db_id]:
-                # Only include trophies within this tenure's date range
+        if tenure["club_game_id"]:
+            # Find all db_ids for this club_game_id
+            matching_club_ids = [
+                c.id for c in db.query(Club.id).filter(
+                    Club.career_id == career_id,
+                    Club.game_id == tenure["club_game_id"]
+                ).all()
+            ]
+            
+            tenure_events = [
+                t for t in all_trophies 
+                if t.related_club_id in matching_club_ids
+            ]
+            
+            for t_event in tenure_events:
                 t_season = db.query(Season).filter(Season.id == t_event.season_id).first() if t_event.season_id else None
                 t_year = t_season.year if t_season else None
-                if t_year and tenure["start_year"] <= t_year <= tenure["end_year"]:
-                    tenure["trophies"].append({
-                        "name": t_event.description,
-                        "year": t_year,
-                        "icon": _resolve_trophy_icon(t_event.description),
-                        "category": _classify_trophy(t_event.description)
-                    })
+                
+                # Extract clean trophy name
+                clean_name = t_event.description
+                if " have won the " in clean_name:
+                    clean_name = clean_name.split(" have won the ", 1)[1]
+                    if " title in the " in clean_name:
+                        clean_name = clean_name.split(" title in the ", 1)[0]
+                
+                tenure["trophies"].append({
+                    "name": clean_name,
+                    "year": t_year,
+                    "icon": _resolve_trophy_icon(t_event.description),
+                    "category": _classify_trophy(t_event.description)
+                })
     
     # --- Aggregate Trophy Counts ---
     trophy_counts = {
@@ -178,8 +199,8 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
         if cat in trophy_counts:
             trophy_counts[cat] += 1
     
-    # --- Mastermind Statistics (per club aggregate) ---
-    mastermind_stats = []
+    # --- Managerial Statistics (per club aggregate) ---
+    managerial_stats = []
     for tenure in club_journey:
         total_m = sum(s["matches"] for s in tenure["seasons"])
         total_w = sum(s["wins"] for s in tenure["seasons"])
@@ -190,14 +211,16 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
         win_pct = round((total_w / total_m * 100), 1) if total_m > 0 else 0.0
         
         tenure_label = f"{tenure['start_year']}-{str(tenure['end_year'])[2:]}"
+        if tenure["start_year"] == tenure["end_year"]:
+            tenure_label = f"{tenure['start_year']}"
         if tenure["is_current"]:
             tenure_label = f"{tenure['start_year']}-Present"
         
-        mastermind_stats.append({
+        managerial_stats.append({
             "club_name": tenure["club_name"],
             "club_game_id": tenure["club_game_id"],
-            "club_id": tenure["club_id"],
             "tenure": tenure_label,
+            "seasons_count": len(tenure["seasons"]),
             "matches": total_m,
             "wins": total_w,
             "draws": total_d,
@@ -209,8 +232,8 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
         })
     
     # --- Career-wide aggregate ---
-    total_career_matches = sum(s["matches"] for s in mastermind_stats)
-    total_career_wins = sum(s["wins"] for s in mastermind_stats)
+    total_career_matches = sum(s["matches"] for s in managerial_stats)
+    total_career_wins = sum(s["wins"] for s in managerial_stats)
     career_win_pct = round((total_career_wins / total_career_matches * 100), 1) if total_career_matches > 0 else 0.0
     
     return {
@@ -229,6 +252,6 @@ def get_career_profile(career_id: int, db: Session = Depends(get_db)):
             "career_win_pct": career_win_pct,
             "awards_count": len(all_awards),
             "club_journey": club_journey,
-            "mastermind_stats": mastermind_stats,
+            "managerial_stats": managerial_stats,
         }
     }

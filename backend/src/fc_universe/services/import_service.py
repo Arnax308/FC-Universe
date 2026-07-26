@@ -825,9 +825,52 @@ class ImportService:
                     ))
             self.db.commit()
 
-        # 9. Generate Competition Standings Winner Events
+        # 9. Generate Competition Trophy Winner Events (from standings qdZF AND competition progress NgwF)
+        # NgwF (career_competitionprogress) stores cup & league winners (hasteamwon / SDel == 1)
+        raw_progress = parsed_data.raw_tables.get("NgwF", [])
+        if raw_progress:
+            for p in raw_progress:
+                won = p.get("SDel")
+                if won == 1:
+                    t_id = p.get("mCXg")
+                    c_id = p.get("OvfW")
+                    s_num = p.get("vojK") or p.get("vojk")
+                    
+                    club = existing_clubs.get(t_id)
+                    comp = existing_comps.get(c_id)
+                    
+                    if club and comp:
+                        # Resolve season object
+                        season_year = 2025 + (s_num - 1) if s_num else (active_season.year if active_season else 2025)
+                        season_obj = self.db.query(Season).filter(
+                            Season.career_id == career.id,
+                            Season.year == season_year
+                        ).first() or active_season
+                        
+                        if season_obj:
+                            event_desc = f"{club.name} have won the {comp.name} title in the {season_obj.year} season!"
+                            
+                            existing_event = self.db.query(TimelineEvent).filter(
+                                TimelineEvent.career_id == career.id,
+                                TimelineEvent.season_id == season_obj.id,
+                                TimelineEvent.event_type == "trophy",
+                                TimelineEvent.related_competition_id == comp.id,
+                                TimelineEvent.related_club_id == club.id
+                            ).first()
+                            
+                            if not existing_event:
+                                self.db.add(TimelineEvent(
+                                    career_id=career.id,
+                                    season_id=season_obj.id,
+                                    event_type="trophy",
+                                    description=event_desc,
+                                    related_club_id=club.id,
+                                    related_competition_id=comp.id,
+                                    gender=1 if is_women_club(club) else 0
+                                ))
+            self.db.commit()
+
         if active_season and raw_standings:
-            # Find active club's league to make sure we always include it
             user_club = None
             for club in existing_clubs.values():
                 if club.game_id == career.team_id:
@@ -835,7 +878,6 @@ class ImportService:
                     break
             user_league = user_club.league if user_club else None
             
-            # Define keywords for major leagues
             major_keywords = [
                 "premier league", "la liga", "laliga", "serie a", "bundesliga",
                 "ligue 1", "champions league", "wsl", "liga f", "nwsl", "women's super league",
@@ -853,12 +895,11 @@ class ImportService:
                     
                     if club and comp:
                         comp_name = comp.name or ""
-                        # Only import major leagues or the league of the user's active club
                         is_major = (user_league and comp_name.lower() == user_league.lower()) or \
                                    any(kw in comp_name.lower() for kw in major_keywords)
                         
                         if not is_major:
-                            continue  # Ignore minor deterministic background leagues
+                            continue
                             
                         event_desc = f"{club.name} have won the {comp.name} title in the {active_season.year} season!"
                         
@@ -866,7 +907,8 @@ class ImportService:
                             TimelineEvent.career_id == career.id,
                             TimelineEvent.season_id == active_season.id,
                             TimelineEvent.event_type == "trophy",
-                            TimelineEvent.related_competition_id == comp.id
+                            TimelineEvent.related_competition_id == comp.id,
+                            TimelineEvent.related_club_id == club.id
                         ).first()
                         
                         if not existing_event:
@@ -881,13 +923,12 @@ class ImportService:
                             ))
             self.db.commit()
 
-        # 10. Import Manager Career History (AGmV table)
-        # This table contains per-season career stats for the user's managed club.
-        # Each row in AGmV represents one season of career history.
+        # 10. Import Manager Career History (zgrE table - career_managerhistory)
+        # zgrE is the true manager history table in EA FC save files.
         from fc_universe.models import ManagerSeasonHistory
-        raw_agmv = parsed_data.raw_tables.get("AGmV", [])
-        if raw_agmv:
-            logger.info(f"Importing {len(raw_agmv)} manager career history records from AGmV...")
+        raw_zgre = parsed_data.raw_tables.get("zgrE", [])
+        if raw_zgre:
+            logger.info(f"Importing {len(raw_zgre)} manager career history records from zgrE...")
             
             # Clear existing history for this career to avoid duplicates on re-import
             self.db.query(ManagerSeasonHistory).filter(
@@ -895,47 +936,50 @@ class ImportService:
             ).delete()
             self.db.flush()
             
-            for idx, row in enumerate(raw_agmv):
+            for idx, row in enumerate(raw_zgre):
                 club_game_id = row.get("mCXg")
+                if club_game_id is None:
+                    continue
                 
-                # Try to resolve the club's DB ID
-                club_obj = existing_clubs.get(club_game_id) if club_game_id is not None else None
+                club_obj = existing_clubs.get(club_game_id)
                 club_db_id = club_obj.id if club_obj else None
                 
-                # Map to a season (seasons are 0-indexed from career start = 2025)
-                season_year = 2025 + idx
+                s_num = row.get("vojK") or row.get("vojk") or (idx + 1)
+                season_year = 2025 + (s_num - 1)
                 season_obj = self.db.query(Season).filter(
                     Season.career_id == career.id,
                     Season.year == season_year
                 ).first()
                 
-                # AGmV fields: educated guesses based on the field structure
-                # Stat fields with -1 range_low — they store aggregate match stats per season
-                # We use the fields that most likely map to W/D/L/GF/GA/Matches
-                # The exact mapping may need iteration after testing with real data
-                matches = (row.get("aNgZ") or 0) + (row.get("aoQg") or 0)  # home + away matches
-                wins = (row.get("bveC") or 0) + (row.get("cTCk") or 0)     # home + away wins
-                draws = (row.get("deBn") or 0) + (row.get("hPku") or 0)     # home + away draws
-                losses = (row.get("qhEx") or 0) + (row.get("sdHe") or 0)    # home + away losses
-                goals_for = (row.get("uOEg") or 0) + (row.get("xckU") or 0)  # home + away GF
-                goals_against = (row.get("AFka") or 0) + (row.get("DkET") or 0)  # home + away GA
-                
-                # If matches is 0, try to derive from W+D+L
-                if matches == 0:
-                    matches = wins + draws + losses
+                matches = row.get("NJUU") or 0
+                wins = row.get("zjtP") or 0
+                draws = row.get("EBvI") or 0
+                losses = row.get("cxMK") or 0
+                goals_for = row.get("EwYk") or 0
+                goals_against = row.get("IoBz") or 0
+                points = row.get("Yyym") or 0
+                table_pos = row.get("zhaq") or 0
+                league_tr = row.get("npBO") or 0
+                cup_tr = row.get("uQOP") or 0
+                euro_tr = row.get("jpwC") or 0
                 
                 history_row = ManagerSeasonHistory(
                     career_id=career.id,
                     season_id=season_obj.id if season_obj else None,
                     club_id=club_db_id,
                     club_game_id=club_game_id,
-                    season_number=idx,
+                    season_number=s_num,
                     matches=matches,
                     wins=wins,
                     draws=draws,
                     losses=losses,
                     goals_for=goals_for,
                     goals_against=goals_against,
+                    points=points,
+                    table_position=table_pos,
+                    league_trophies=league_tr,
+                    cup_trophies=cup_tr,
+                    euro_trophies=euro_tr,
                 )
                 self.db.add(history_row)
             
