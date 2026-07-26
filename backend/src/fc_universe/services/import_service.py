@@ -866,11 +866,26 @@ class ImportService:
             self.db.commit()
 
         # 9. Generate Competition Trophy Winner Events (from standings qdZF AND competition progress NgwF)
-        # Filter: Only log events for clubs managed by the user OR major continental/world trophies (e.g. Champions League)
+        # Filter: Keep events for user's managed clubs OR Top 5 European leagues (PL, La Liga, Bundesliga, Serie A, Ligue 1) OR major cups OR any league managed by user.
         raw_zgre_teams = parsed_data.raw_tables.get("zgrE", [])
         managed_team_game_ids = {r.get("mCXg") for r in raw_zgre_teams if r.get("mCXg") is not None}
         if career.team_id:
             managed_team_game_ids.add(career.team_id)
+
+        managed_league_names = {
+            c.league.lower() for c in existing_clubs.values() 
+            if c.game_id in managed_team_game_ids and c.league
+        }
+
+        TOP_5_LEAGUES = {13, 53, 19, 31, 16}
+        MAJOR_CUPS = {135, 136, 223, 139, 1335, 5335, 1327, 1313, 5313, 1314, 5314, 1319, 5319, 1331, 5331, 1316, 5316}
+
+        def is_relevant_competition(c_id: int, c_name: str) -> bool:
+            if c_id in TOP_5_LEAGUES or c_id in MAJOR_CUPS:
+                return True
+            if c_name and c_name.lower() in managed_league_names:
+                return True
+            return False
 
         raw_progress = parsed_data.raw_tables.get("NgwF", [])
         if raw_progress:
@@ -886,10 +901,10 @@ class ImportService:
                     
                     if club and comp:
                         is_user_club = (t_id in managed_team_game_ids)
-                        is_major_continental = (c_id in (135, 136, 139, 223))
+                        is_relevant = is_relevant_competition(c_id, comp.name)
                         
-                        # Skip deterministic background AI events for minor AI clubs
-                        if not is_user_club and not is_major_continental:
+                        # Only keep if user's club or Top 5 / Major Cup / Managed League
+                        if not is_user_club and not is_relevant:
                             continue
                             
                         # Resolve season object
@@ -923,13 +938,6 @@ class ImportService:
             self.db.commit()
 
         if active_season and raw_standings:
-            user_club = None
-            for club in existing_clubs.values():
-                if club.game_id == career.team_id:
-                    user_club = club
-                    break
-            user_league = user_club.league if user_club else None
-
             for s in raw_standings:
                 t_id = s.get("mCXg")
                 l_id = s.get("aQrQ")
@@ -941,11 +949,9 @@ class ImportService:
                     
                     if club and comp:
                         is_user_club = (t_id in managed_team_game_ids)
-                        comp_name = comp.name or ""
-                        is_user_active_league = bool(user_league and comp_name.lower() == user_league.lower())
+                        is_relevant = is_relevant_competition(l_id, comp.name)
                         
-                        # Only log standings winner if it's the user's club or user's active league
-                        if not is_user_club and not is_user_active_league:
+                        if not is_user_club and not is_relevant:
                             continue
                             
                         event_desc = f"{club.name} have won the {comp.name} title in the {active_season.year} season!"
