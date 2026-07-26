@@ -15,42 +15,48 @@ from fc_universe.api import health, careers, players, clubs, images, transfers, 
 
 
 def auto_import_latest_save():
-    """On app launch, automatically find and import the newest EA FC save file."""
+    """On app launch, automatically find and import the newest EA FC save file in a background thread."""
+    import threading
     import logging
-    logger = logging.getLogger("fc_universe.auto_import")
-    try:
-        from pathlib import Path
-        from fc_universe.database import SessionLocal
-        from fc_universe.parser.fbchunks import FbChunksParser, apply_team_offset_overrides
-        from fc_universe.services.import_service import ImportService
 
-        save_dir = settings.save_directory
-        if not save_dir.exists():
-            logger.info(f"Save directory not found: {save_dir}")
-            return
-
-        save_files = list(save_dir.glob("CmMgrC*"))
-        if not save_files:
-            logger.info("No CmMgrC save files found in save directory.")
-            return
-
-        save_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        latest_file = save_files[0]
-        logger.info(f"Auto-importing latest save file on app launch: {latest_file.name}")
-
-        apply_team_offset_overrides(settings.team_id_offset)
-        parser = FbChunksParser()
-        parsed_data = parser.parse(latest_file)
-
-        db = SessionLocal()
+    def _bg_import():
+        logger = logging.getLogger("fc_universe.auto_import")
         try:
-            import_service = ImportService(db)
-            career = import_service.import_save(parsed_data)
-            logger.info(f"Auto-import successful for career ID={career.id} ('{career.name}')")
-        finally:
-            db.close()
-    except Exception as e:
-        logger.warning(f"Auto-import on startup encountered warning: {e}")
+            from pathlib import Path
+            from fc_universe.database import SessionLocal
+            from fc_universe.parser.fbchunks import FbChunksParser, apply_team_offset_overrides
+            from fc_universe.services.import_service import ImportService
+
+            save_dir = settings.save_directory
+            if not save_dir.exists():
+                logger.info(f"Save directory not found: {save_dir}")
+                return
+
+            save_files = list(save_dir.glob("CmMgrC*"))
+            if not save_files:
+                logger.info("No CmMgrC save files found in save directory.")
+                return
+
+            save_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            latest_file = save_files[0]
+            logger.info(f"Auto-importing latest save file on app launch: {latest_file.name}")
+
+            apply_team_offset_overrides(settings.team_id_offset)
+            parser = FbChunksParser()
+            parsed_data = parser.parse(latest_file)
+
+            db = SessionLocal()
+            try:
+                import_service = ImportService(db)
+                career = import_service.import_save(parsed_data)
+                logger.info(f"Auto-import successful for career ID={career.id} ('{career.name}')")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Auto-import on startup encountered warning: {e}")
+
+    thread = threading.Thread(target=_bg_import, daemon=True)
+    thread.start()
 
 
 def create_app() -> FastAPI:
