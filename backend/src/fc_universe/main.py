@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fc_universe.config import settings
 from fc_universe.database import create_tables
-from fc_universe.api import health, careers, players, clubs, images, transfers, timeline
+from fc_universe.api import health, careers, players, clubs, images, transfers, timeline, career_profile
 
 
 def create_app() -> FastAPI:
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(images.router, prefix=settings.api_prefix)
     app.include_router(transfers.router, prefix=settings.api_prefix)
     app.include_router(timeline.router, prefix=settings.api_prefix)
+    app.include_router(career_profile.router, prefix=settings.api_prefix)
 
     # Serve React SPA static files if the frontend build exists
     import os

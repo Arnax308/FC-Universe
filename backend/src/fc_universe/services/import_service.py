@@ -881,5 +881,65 @@ class ImportService:
                             ))
             self.db.commit()
 
+        # 10. Import Manager Career History (AGmV table)
+        # This table contains per-season career stats for the user's managed club.
+        # Each row in AGmV represents one season of career history.
+        from fc_universe.models import ManagerSeasonHistory
+        raw_agmv = parsed_data.raw_tables.get("AGmV", [])
+        if raw_agmv:
+            logger.info(f"Importing {len(raw_agmv)} manager career history records from AGmV...")
+            
+            # Clear existing history for this career to avoid duplicates on re-import
+            self.db.query(ManagerSeasonHistory).filter(
+                ManagerSeasonHistory.career_id == career.id
+            ).delete()
+            self.db.flush()
+            
+            for idx, row in enumerate(raw_agmv):
+                club_game_id = row.get("mCXg")
+                
+                # Try to resolve the club's DB ID
+                club_obj = existing_clubs.get(club_game_id) if club_game_id is not None else None
+                club_db_id = club_obj.id if club_obj else None
+                
+                # Map to a season (seasons are 0-indexed from career start = 2025)
+                season_year = 2025 + idx
+                season_obj = self.db.query(Season).filter(
+                    Season.career_id == career.id,
+                    Season.year == season_year
+                ).first()
+                
+                # AGmV fields: educated guesses based on the field structure
+                # Stat fields with -1 range_low — they store aggregate match stats per season
+                # We use the fields that most likely map to W/D/L/GF/GA/Matches
+                # The exact mapping may need iteration after testing with real data
+                matches = (row.get("aNgZ") or 0) + (row.get("aoQg") or 0)  # home + away matches
+                wins = (row.get("bveC") or 0) + (row.get("cTCk") or 0)     # home + away wins
+                draws = (row.get("deBn") or 0) + (row.get("hPku") or 0)     # home + away draws
+                losses = (row.get("qhEx") or 0) + (row.get("sdHe") or 0)    # home + away losses
+                goals_for = (row.get("uOEg") or 0) + (row.get("xckU") or 0)  # home + away GF
+                goals_against = (row.get("AFka") or 0) + (row.get("DkET") or 0)  # home + away GA
+                
+                # If matches is 0, try to derive from W+D+L
+                if matches == 0:
+                    matches = wins + draws + losses
+                
+                history_row = ManagerSeasonHistory(
+                    career_id=career.id,
+                    season_id=season_obj.id if season_obj else None,
+                    club_id=club_db_id,
+                    club_game_id=club_game_id,
+                    season_number=idx,
+                    matches=matches,
+                    wins=wins,
+                    draws=draws,
+                    losses=losses,
+                    goals_for=goals_for,
+                    goals_against=goals_against,
+                )
+                self.db.add(history_row)
+            
+            self.db.commit()
+
         logger.info(f"Import complete for career {career.id}")
         return career

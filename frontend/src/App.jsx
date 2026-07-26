@@ -7,6 +7,7 @@ import Clubs from './Clubs'
 import ClubProfile from './ClubProfile'
 import Transfers from './Transfers'
 import Timeline from './Timeline'
+import CareerProfile from './CareerProfile'
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
           <Route path="clubs/:id" element={<ClubProfile />} />
           <Route path="transfers" element={<Transfers />} />
           <Route path="timeline" element={<Timeline />} />
+          <Route path="career" element={<CareerProfile />} />
           <Route path="*" element={<div className="p-8 text-on-surface">Screen not found.</div>} />
         </Route>
       </Routes>

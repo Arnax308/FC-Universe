@@ -278,7 +278,7 @@ export default function ClubProfile() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <TrophyImage src="/assets/trophies/ucl.png" alt="Trophy" />
+                  <TrophyImage src="/api/images/trophy/ucl" alt="Trophy" />
                   <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">Trophy Cabinet</h3>
                 </div>
                 <span className="text-xs text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
@@ -346,7 +346,7 @@ export default function ClubProfile() {
             </div>
             
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-center min-w-[140px] flex flex-col items-center">
-              <TrophyImage src="/assets/trophies/ucl.png" alt="Trophy" />
+              <TrophyImage src="/api/images/trophy/ucl" alt="Trophy" />
               <p className="text-3xl font-black text-amber-400 mt-1">{totalHistoricalCount}</p>
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Trophies</p>
             </div>
@@ -384,7 +384,7 @@ export default function ClubProfile() {
           {/* All-Time Historical Silverware */}
           <div className="space-y-4">
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              <TrophyImage src="/assets/trophies/league.png" alt="Silverware" />
+              <TrophyImage src="/api/images/trophy/pl" alt="Silverware" />
               All-Time Historical Silverware
             </h3>
 

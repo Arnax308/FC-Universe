@@ -582,7 +582,7 @@ export default function PlayerProfile() {
                       ))}
                       {player.trophies && player.trophies.map((tr, idx) => (
                         <div key={`tr-${idx}`} className="flex flex-col items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center">
-                          <img src={tr.icon || "/assets/trophies/league.png"} alt="Trophy" className="w-8 h-8 object-contain" />
+                          <img src={tr.icon || "/api/images/trophy/pl"} alt="Trophy" className="w-8 h-8 object-contain" />
                           <span className="text-[10px] font-bold text-white leading-tight">{tr.name}</span>
                           <span className="text-[9px] text-emerald-400 font-bold">Team Silverware</span>
                         </div>

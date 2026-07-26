@@ -11,6 +11,7 @@ from fc_universe.models.stats import PlayerSeasonStats, ClubSeasonStats
 from fc_universe.models.manager import Manager
 from fc_universe.models.timeline import TimelineEvent
 from fc_universe.models.record import Record
+from fc_universe.models.manager_history import ManagerSeasonHistory
 
 __all__ = [
     "Career",
@@ -26,4 +27,6 @@ __all__ = [
     "Manager",
     "TimelineEvent",
     "Record",
+    "ManagerSeasonHistory",
 ]
+

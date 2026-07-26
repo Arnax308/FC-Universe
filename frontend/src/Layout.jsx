@@ -119,6 +119,11 @@ export default function Layout() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 space-y-1">
+          <NavLink to="/career" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
+            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">military_tech</span>
+            <span className="text-label-caps font-label-caps tracking-wider">Legacy Hub</span>
+          </NavLink>
+
           <NavLink to="/" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
             <span className="material-symbols-outlined group-hover:scale-110 transition-transform">public</span>
             <span className="text-label-caps font-label-caps tracking-wider">Universes</span>
