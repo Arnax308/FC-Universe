@@ -8,6 +8,7 @@ export default function PlayerProfile() {
   const [stats, setStats] = useState([]);
   const [transfers, setTransfers] = useState([]);
   const [awards, setAwards] = useState([]);
+  const [trophies, setTrophies] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [conversionPlans, setConversionPlans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +24,7 @@ export default function PlayerProfile() {
         setStats(data.stats || []);
         setTransfers(data.transfers || []);
         setAwards(data.awards || []);
+        setTrophies(data.trophies || []);
         setTimeline(data.timeline || []);
         setConversionPlans(data.conversion_plans || []);
         setLoading(false);
@@ -568,23 +570,23 @@ export default function PlayerProfile() {
               <div className="bg-surface-container/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
                 <div className="flex items-center gap-2 mb-5">
                   <span className="material-symbols-outlined text-primary text-lg">emoji_events</span>
-                  <h3 className="text-base font-bold text-white">Honours & Cabinet ({awards.length + (player.trophies ? player.trophies.length : 0)})</h3>
+                  <h3 className="text-base font-bold text-white">Honours & Cabinet ({awards.length + trophies.length})</h3>
                 </div>
                 <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
-                  {awards.length > 0 || (player.trophies && player.trophies.length > 0) ? (
+                  {awards.length > 0 || trophies.length > 0 ? (
                     <>
                       {awards.map((aw, idx) => (
                         <div key={`aw-${idx}`} className="flex flex-col items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
-                          <img src="/assets/trophies/ballondor.png" alt="Award" className="w-8 h-8 object-contain" />
+                          <img src="/api/images/trophy/balondor" alt="Award" className="w-8 h-8 object-contain" />
                           <span className="text-[10px] font-bold text-white leading-tight">{aw.name}</span>
-                          <span className="text-[9px] text-amber-400 font-bold">x1 ({aw.season_year})</span>
+                          <span className="text-[9px] text-amber-400 font-bold">Award ({aw.season_year})</span>
                         </div>
                       ))}
-                      {player.trophies && player.trophies.map((tr, idx) => (
+                      {trophies.map((tr, idx) => (
                         <div key={`tr-${idx}`} className="flex flex-col items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center">
                           <img src={tr.icon || "/api/images/trophy/pl"} alt="Trophy" className="w-8 h-8 object-contain" />
                           <span className="text-[10px] font-bold text-white leading-tight">{tr.name}</span>
-                          <span className="text-[9px] text-emerald-400 font-bold">Team Silverware</span>
+                          <span className="text-[9px] text-emerald-400 font-bold">Team Silverware ({tr.season_year || 'Won'})</span>
                         </div>
                       ))}
                     </>

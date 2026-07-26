@@ -300,7 +300,7 @@ def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get
         for row in award_rows
     ]
     
-    # Query Timeline Events
+    # Query Timeline Events (player-specific events)
     timeline_rows = (
         db.query(TimelineEvent, Season.year)
         .outerjoin(Season, Season.id == TimelineEvent.season_id)
@@ -318,6 +318,51 @@ def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get
         for row in timeline_rows
     ]
 
+    # Query Team Silverware / Trophies won by player's clubs
+    player_club_ids = set()
+    if player.current_club_id:
+        player_club_ids.add(player.current_club_id)
+    for s_row in stats_rows:
+        if s_row[0].club_id:
+            player_club_ids.add(s_row[0].club_id)
+
+    player_club_game_ids = [
+        c.game_id for c in db.query(Club.game_id).filter(Club.id.in_(list(player_club_ids))).all() if c.game_id
+    ] if player_club_ids else []
+
+    all_matching_club_ids = [
+        c.id for c in db.query(Club.id).filter(Club.career_id == career_id, Club.game_id.in_(player_club_game_ids)).all()
+    ] if player_club_game_ids else []
+
+    trophy_events = db.query(TimelineEvent, Season.year).outerjoin(
+        Season, Season.id == TimelineEvent.season_id
+    ).filter(
+        TimelineEvent.career_id == career_id,
+        TimelineEvent.event_type == "trophy",
+        TimelineEvent.related_club_id.in_(all_matching_club_ids)
+    ).order_by(Season.year.desc()).all() if all_matching_club_ids else []
+
+    from fc_universe.api.career_profile import _resolve_trophy_icon
+    player_trophies = []
+    seen_trophy_keys = set()
+
+    for te, s_year in trophy_events:
+        clean_name = te.description
+        if " have won the " in clean_name:
+            clean_name = clean_name.split(" have won the ", 1)[1]
+            if " title in the " in clean_name:
+                clean_name = clean_name.split(" title in the ", 1)[0]
+        
+        t_key = (clean_name, s_year)
+        if t_key not in seen_trophy_keys:
+            seen_trophy_keys.add(t_key)
+            player_trophies.append({
+                "name": clean_name,
+                "season_year": s_year,
+                "icon": _resolve_trophy_icon(te.description),
+                "description": te.description
+            })
+
     # Calculate position conversion plans
     conversion_plans = calculate_conversion_plans(player)
     
@@ -326,6 +371,7 @@ def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get
         "stats": stats,
         "transfers": transfers,
         "awards": awards,
+        "trophies": player_trophies,
         "timeline": timeline,
         "conversion_plans": conversion_plans
     }
