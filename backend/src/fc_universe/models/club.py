@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Integer, String, DateTime, ForeignKey
+from sqlalchemy import Integer, String, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from fc_universe.database import Base
@@ -12,6 +12,7 @@ class Club(Base):
     """Represents a football club within a career universe."""
 
     __tablename__ = "clubs"
+    __table_args__ = (UniqueConstraint("career_id", "game_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     career_id: Mapped[int] = mapped_column(ForeignKey("careers.id"), nullable=False)
@@ -29,6 +30,10 @@ class Club(Base):
     international_prestige: Mapped[int | None] = mapped_column(Integer)
     foundation_year: Mapped[int | None] = mapped_column(Integer)
     rival_team_id: Mapped[int | None] = mapped_column(Integer)
+    # Kit colours from the save's teams table (teamcolor1/2/3), stored as #rrggbb
+    color_primary: Mapped[str | None] = mapped_column(String(7))
+    color_secondary: Mapped[str | None] = mapped_column(String(7))
+    color_tertiary: Mapped[str | None] = mapped_column(String(7))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

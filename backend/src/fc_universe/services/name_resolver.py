@@ -99,7 +99,8 @@ class NameResolver:
             logger.debug(f"Failed to fetch {game_id} from fut.gg: {e}")
         return None
 
-    def resolve_name(self, game_id: int, first_id: int, last_id: int, common_id: int, dc_names: dict) -> str:
+    def resolve_name(self, game_id: int, first_id: int, last_id: int, common_id: int, dc_names: dict,
+                     allow_network: bool = False) -> str:
         """Resolve a player's name using cache and DC names (bneD).
         
         Strategy:
@@ -116,14 +117,16 @@ class NameResolver:
         if game_id in self.name_cache and self.name_cache[game_id]:
             return self.name_cache[game_id]
             
-        # 3. For real players not in master or cache: try to fetch from FUT.GG on the fly
+        # 3. For real players not in master or cache: optionally fetch from FUT.GG.
+        # Imports pass allow_network=False — a 5s request per unknown player inside the
+        # import transaction made offline imports take hours and locked the database.
         if game_id < 280000:
-            fetched_name = self.fetch_from_fifacm(game_id)
+            fetched_name = self.fetch_from_fifacm(game_id) if allow_network else None
             if fetched_name:
                 return fetched_name
             return f"Player #{game_id}"
 
-        # 3. For generated/youth players (game_id >= 280000): use dc_names (bneD) + playernames.csv
+        # 4. For generated/youth players (game_id >= 280000): use dc_names (bneD) + playernames.csv
         if game_id >= 280000:
             first = dc_names.get(first_id) or self.base_name_map.get(first_id, "") if first_id else ""
             last = dc_names.get(last_id) or self.base_name_map.get(last_id, "") if last_id else ""

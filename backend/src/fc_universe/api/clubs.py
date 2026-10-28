@@ -1,311 +1,215 @@
 """Clubs API routes."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from fc_universe.api.common import (
+    club_brief, current_season_year, season_label, trophy_dict, trophy_rows,
+)
 from fc_universe.database import get_db
-from fc_universe.models import Club, Season
+from fc_universe.models import (
+    Career, Club, ClubSeasonStats, Competition, Manager, Player, Season, Transfer,
+)
 from fc_universe.schemas.club import ClubOut
 
 router = APIRouter(tags=["clubs"])
 
+# Home grounds for the best-known clubs, keyed by EA team id.
+STADIUMS = {
+    243: "Santiago Bernabéu", 241: "Spotify Camp Nou", 240: "Riyadh Air Metropolitano",
+    10: "Etihad Stadium", 11: "Old Trafford", 9: "Anfield", 1: "Emirates Stadium",
+    5: "Stamford Bridge", 18: "Tottenham Hotspur Stadium", 21: "Allianz Arena",
+    22: "Signal Iduna Park", 73: "Parc des Princes", 45: "Allianz Stadium",
+    131681: "San Siro", 131682: "San Siro", 461: "Mestalla",
+}
+
+
+def _honour(name: str, icon: str, count: int, category: str) -> dict:
+    return {"name": name, "icon": f"/api/images/trophy/{icon}", "count": count, "category": category}
+
+
+# Real-world honours won before the career began, keyed by EA team id — exact club only,
+# so women's, historic and namesake teams don't inherit them.
+REAL_WORLD_HONOURS = {
+    243: [  # Real Madrid
+        _honour("UEFA Champions League", "ucl", 15, "Continental"),
+        _honour("La Liga", "la_liga", 36, "Domestic League"),
+        _honour("Copa del Rey", "copa_del_rey", 20, "Domestic Cup"),
+        _honour("Supercopa de España", "copa_del_rey", 13, "Domestic Supercup"),
+    ],
+    241: [  # FC Barcelona
+        _honour("UEFA Champions League", "ucl", 5, "Continental"),
+        _honour("La Liga", "la_liga", 28, "Domestic League"),
+        _honour("Copa del Rey", "copa_del_rey", 32, "Domestic Cup"),
+        _honour("Supercopa de España", "copa_del_rey", 15, "Domestic Supercup"),
+    ],
+    21: [  # Bayern München
+        _honour("UEFA Champions League", "ucl", 6, "Continental"),
+        _honour("Bundesliga", "bundesliga", 34, "Domestic League"),
+        _honour("DFB-Pokal", "dfb_pokal", 20, "Domestic Cup"),
+    ],
+    10: [  # Manchester City
+        _honour("UEFA Champions League", "ucl", 1, "Continental"),
+        _honour("Premier League", "pl", 10, "Domestic League"),
+        _honour("FA Cup", "fa", 7, "Domestic Cup"),
+        _honour("EFL Cup", "carabao", 8, "League Cup"),
+    ],
+    11: [  # Manchester United
+        _honour("UEFA Champions League", "ucl", 3, "Continental"),
+        _honour("Premier League", "pl", 20, "Domestic League"),
+        _honour("FA Cup", "fa", 13, "Domestic Cup"),
+        _honour("EFL Cup", "carabao", 6, "League Cup"),
+    ],
+    9: [  # Liverpool
+        _honour("UEFA Champions League", "ucl", 6, "Continental"),
+        _honour("Premier League", "pl", 20, "Domestic League"),
+        _honour("FA Cup", "fa", 8, "Domestic Cup"),
+        _honour("EFL Cup", "carabao", 10, "League Cup"),
+    ],
+    1: [  # Arsenal
+        _honour("Premier League", "pl", 13, "Domestic League"),
+        _honour("FA Cup", "fa", 14, "Domestic Cup"),
+        _honour("EFL Cup", "carabao", 2, "League Cup"),
+    ],
+    5: [  # Chelsea
+        _honour("UEFA Champions League", "ucl", 2, "Continental"),
+        _honour("Premier League", "pl", 6, "Domestic League"),
+        _honour("FA Cup", "fa", 8, "Domestic Cup"),
+        _honour("UEFA Europa League", "uel", 2, "Continental"),
+    ],
+    131681: [  # Milano FC (AC Milan)
+        _honour("UEFA Champions League", "ucl", 7, "Continental"),
+        _honour("Serie A", "seria_a", 19, "Domestic League"),
+        _honour("Coppa Italia", "coppa_italia", 5, "Domestic Cup"),
+    ],
+    131682: [  # Lombardia FC (Inter)
+        _honour("UEFA Champions League", "ucl", 3, "Continental"),
+        _honour("Serie A", "seria_a", 20, "Domestic League"),
+        _honour("Coppa Italia", "coppa_italia", 9, "Domestic Cup"),
+    ],
+    45: [  # Juventus
+        _honour("UEFA Champions League", "ucl", 2, "Continental"),
+        _honour("Serie A", "seria_a", 36, "Domestic League"),
+        _honour("Coppa Italia", "coppa_italia", 15, "Domestic Cup"),
+    ],
+    73: [  # Paris Saint-Germain
+        _honour("UEFA Champions League", "ucl", 1, "Continental"),
+        _honour("Ligue 1", "ligue_1", 13, "Domestic League"),
+        _honour("Coupe de France", "coupe_de_france", 16, "Domestic Cup"),
+    ],
+}
+
 
 @router.get("/careers/{career_id}/clubs", response_model=list[ClubOut])
 def list_clubs(
-    career_id: int, 
-    skip: int = 0, 
-    limit: int = 2000, 
-    search: str | None = None, 
-    league: str | None = None, 
+    career_id: int,
+    skip: int = 0,
+    limit: int = 2000,
+    search: str | None = None,
+    league: str | None = None,
     db: Session = Depends(get_db)
 ):
     """List all clubs in a specific career."""
     query = db.query(Club).filter(Club.career_id == career_id)
     if search:
-        search_term = f"%{search}%"
-        query = query.filter((Club.name.ilike(search_term)) | (Club.short_name.ilike(search_term)))
+        term = f"%{search}%"
+        query = query.filter(Club.name.ilike(term) | Club.short_name.ilike(term))
     if league:
         query = query.filter(Club.league == league)
-        
-    clubs = query.order_by(Club.name.asc()).offset(skip).limit(limit).all()
-    return clubs
+    return query.order_by(Club.name.asc()).offset(skip).limit(limit).all()
 
 
 @router.get("/careers/{career_id}/clubs/{club_id}", response_model=ClubOut)
 def get_club(career_id: int, club_id: int, db: Session = Depends(get_db)):
-    """Get details of a specific club with dynamic manager, squad, and financial statistics."""
-    from fastapi import HTTPException
-    from fc_universe.models import Career, Manager, Player, Transfer, TimelineEvent
-    
+    """Club details: manager, squad, finances, honours. ``club_id`` is a database id."""
     club = db.query(Club).filter(Club.career_id == career_id, Club.id == club_id).first()
     if not club:
-        club = db.query(Club).filter(Club.career_id == career_id, Club.game_id == club_id).first()
-    if not club:
         raise HTTPException(status_code=404, detail="Club not found")
-        
-    career_obj = db.query(Career).filter(Career.id == career_id).first()
-    
-    # 1. Manager Name Resolution
-    mgr_name = None
-    if career_obj and career_obj.team_id is not None and (career_obj.team_id == club.game_id or career_obj.team_id == club.id):
-        mgr_name = career_obj.manager_name
-    if not mgr_name:
-        mgr = db.query(Manager).filter(Manager.career_id == career_id, Manager.club_id == club.id).first()
-        if mgr:
-            mgr_name = mgr.name
-    if not mgr_name:
-        mgr_name = "Interim Manager"
+    career = db.get(Career, career_id)
+    is_user_club = bool(career and career.team_id is not None and career.team_id == club.game_id)
 
-    # 2. Stadium Name Map / Fallback
-    STADIUM_MAP = {
-        "Real Madrid": "Santiago Bernabéu",
-        "FC Barcelona": "Spotify Camp Nou",
-        "Atletico Madrid": "Cívitas Metropolitano",
-        "Manchester City": "Etihad Stadium",
-        "Manchester United": "Old Trafford",
-        "Liverpool": "Anfield",
-        "Arsenal": "Emirates Stadium",
-        "Chelsea": "Stamford Bridge",
-        "Bayern": "Allianz Arena",
-        "Dortmund": "Signal Iduna Park",
-        "Paris": "Parc des Princes",
-        "Juventus": "Allianz Stadium",
-        "Milan": "San Siro",
-        "Inter": "San Siro"
-    }
-    stadium_name = None
-    for name_key, st_name in STADIUM_MAP.items():
-        if name_key.lower() in club.name.lower():
-            stadium_name = st_name
-            break
-    if not stadium_name:
-        stadium_name = f"{club.short_name or club.name} Stadium"
-
-    # 3. Squad & Top Player Stats
-    players_query = db.query(Player).filter(
-        Player.career_id == career_id, 
-        Player.current_club_id == club.id
-    )
-    squad_count = players_query.count()
-    top_p = players_query.order_by(Player.overall.desc()).first()
-    top_player_name = (top_p.known_name or f"{top_p.first_name} {top_p.last_name}".strip()) if top_p else None
-    top_player_ovr = top_p.overall if top_p else None
-
-    # 4. Transfers & Net Spend Stats
-    bought_transfers = db.query(Transfer).filter(Transfer.career_id == career_id, Transfer.to_club_id == club.id).all()
-    sold_transfers = db.query(Transfer).filter(Transfer.career_id == career_id, Transfer.from_club_id == club.id).all()
-    
-    total_spent = sum([t.fee for t in bought_transfers if t.fee])
-    total_received = sum([t.fee for t in sold_transfers if t.fee])
-    net_spend = total_spent - total_received
-    transfers_count = len(bought_transfers) + len(sold_transfers)
-
-    # 5. Historical All-Time Trophies Database
-    # Icons served via /api/images/trophy/{name} from data/image_cache/trophies/
-    # Available PNGs: balondor, bundesliga, copa_del_rey, coppa_italia, dfb_pokal,
-    #                 fa, carabao, la_liga, ligue_1, pl, seria_a, ucl, uel, uecl, coupe_de_france
-    HISTORICAL_TROPHIES_MAP = {
-        "Real Madrid": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 15, "category": "Continental"},
-            {"name": "La Liga", "icon": "/api/images/trophy/la_liga", "count": 36, "category": "Domestic League"},
-            {"name": "Copa del Rey", "icon": "/api/images/trophy/copa_del_rey", "count": 20, "category": "Domestic Cup"},
-            {"name": "Supercopa de España", "icon": "/api/images/trophy/copa_del_rey", "count": 13, "category": "Domestic Supercup"},
-            {"name": "FIFA Club World Cup", "icon": "/api/images/trophy/ucl", "count": 5, "category": "World"}
-        ],
-        "Barcelona": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 5, "category": "Continental"},
-            {"name": "La Liga", "icon": "/api/images/trophy/la_liga", "count": 27, "category": "Domestic League"},
-            {"name": "Copa del Rey", "icon": "/api/images/trophy/copa_del_rey", "count": 31, "category": "Domestic Cup"},
-            {"name": "Supercopa de España", "icon": "/api/images/trophy/copa_del_rey", "count": 14, "category": "Domestic Supercup"},
-            {"name": "FIFA Club World Cup", "icon": "/api/images/trophy/ucl", "count": 3, "category": "World"}
-        ],
-        "Bayern": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 6, "category": "Continental"},
-            {"name": "Bundesliga", "icon": "/api/images/trophy/bundesliga", "count": 33, "category": "Domestic League"},
-            {"name": "DFB-Pokal", "icon": "/api/images/trophy/dfb_pokal", "count": 20, "category": "Domestic Cup"},
-            {"name": "DFL-Supercup", "icon": "/api/images/trophy/dfb_pokal", "count": 10, "category": "Domestic Supercup"}
-        ],
-        "Manchester City": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 1, "category": "Continental"},
-            {"name": "Premier League", "icon": "/api/images/trophy/pl", "count": 10, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/api/images/trophy/fa", "count": 7, "category": "Domestic Cup"},
-            {"name": "EFL Cup (Carabao)", "icon": "/api/images/trophy/carabao", "count": 8, "category": "League Cup"},
-            {"name": "Community Shield", "icon": "/api/images/trophy/fa", "count": 7, "category": "Supercup"}
-        ],
-        "Manchester United": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 3, "category": "Continental"},
-            {"name": "Premier League", "icon": "/api/images/trophy/pl", "count": 20, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/api/images/trophy/fa", "count": 13, "category": "Domestic Cup"},
-            {"name": "EFL Cup", "icon": "/api/images/trophy/carabao", "count": 6, "category": "League Cup"},
-            {"name": "Community Shield", "icon": "/api/images/trophy/fa", "count": 21, "category": "Supercup"}
-        ],
-        "Liverpool": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 6, "category": "Continental"},
-            {"name": "Premier League", "icon": "/api/images/trophy/pl", "count": 19, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/api/images/trophy/fa", "count": 8, "category": "Domestic Cup"},
-            {"name": "EFL Cup", "icon": "/api/images/trophy/carabao", "count": 10, "category": "League Cup"},
-            {"name": "Community Shield", "icon": "/api/images/trophy/fa", "count": 16, "category": "Supercup"}
-        ],
-        "Arsenal": [
-            {"name": "Premier League", "icon": "/api/images/trophy/pl", "count": 13, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/api/images/trophy/fa", "count": 14, "category": "Domestic Cup"},
-            {"name": "EFL Cup", "icon": "/api/images/trophy/carabao", "count": 2, "category": "League Cup"},
-            {"name": "FA Community Shield", "icon": "/api/images/trophy/fa", "count": 17, "category": "Supercup"}
-        ],
-        "Chelsea": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 2, "category": "Continental"},
-            {"name": "Premier League", "icon": "/api/images/trophy/pl", "count": 6, "category": "Domestic League"},
-            {"name": "FA Cup", "icon": "/api/images/trophy/fa", "count": 8, "category": "Domestic Cup"},
-            {"name": "EFL Cup", "icon": "/api/images/trophy/carabao", "count": 5, "category": "League Cup"},
-            {"name": "UEFA Europa League", "icon": "/api/images/trophy/uel", "count": 2, "category": "Continental"}
-        ],
-        "Milan": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 7, "category": "Continental"},
-            {"name": "Serie A Scudetto", "icon": "/api/images/trophy/seria_a", "count": 19, "category": "Domestic League"},
-            {"name": "Coppa Italia", "icon": "/api/images/trophy/coppa_italia", "count": 5, "category": "Domestic Cup"},
-            {"name": "Supercoppa Italiana", "icon": "/api/images/trophy/coppa_italia", "count": 7, "category": "Domestic Supercup"}
-        ],
-        "Inter": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 3, "category": "Continental"},
-            {"name": "Serie A Scudetto", "icon": "/api/images/trophy/seria_a", "count": 20, "category": "Domestic League"},
-            {"name": "Coppa Italia", "icon": "/api/images/trophy/coppa_italia", "count": 9, "category": "Domestic Cup"},
-            {"name": "Supercoppa Italiana", "icon": "/api/images/trophy/coppa_italia", "count": 8, "category": "Domestic Supercup"}
-        ],
-        "Juventus": [
-            {"name": "UEFA Champions League", "icon": "/api/images/trophy/ucl", "count": 2, "category": "Continental"},
-            {"name": "Serie A Scudetto", "icon": "/api/images/trophy/seria_a", "count": 36, "category": "Domestic League"},
-            {"name": "Coppa Italia", "icon": "/api/images/trophy/coppa_italia", "count": 15, "category": "Domestic Cup"},
-            {"name": "Supercoppa Italiana", "icon": "/api/images/trophy/coppa_italia", "count": 9, "category": "Domestic Supercup"}
-        ],
-        "Paris": [
-            {"name": "Ligue 1", "icon": "/api/images/trophy/ligue_1", "count": 12, "category": "Domestic League"},
-            {"name": "Coupe de France", "icon": "/api/images/trophy/coupe_de_france", "count": 15, "category": "Domestic Cup"},
-            {"name": "Trophée des Champions", "icon": "/api/images/trophy/coupe_de_france", "count": 12, "category": "Domestic Supercup"}
-        ]
-    }
-
-    hist_trophies = None
-    for k, v in HISTORICAL_TROPHIES_MAP.items():
-        if k.lower() in club.name.lower():
-            hist_trophies = v
-            break
-
-    if not hist_trophies:
-        dom_p = club.domestic_prestige or 5
-        intl_p = club.international_prestige or 5
-        hist_trophies = []
-        if dom_p > 5:
-            hist_trophies.append({"name": "Domestic League Titles", "icon": "/api/images/trophy/pl", "count": int(dom_p * 1.5), "category": "Domestic"})
-        if dom_p > 3:
-            hist_trophies.append({"name": "Domestic Cup Titles", "icon": "/api/images/trophy/fa", "count": int(dom_p * 1.2), "category": "Domestic Cup"})
-        if intl_p > 7:
-            hist_trophies.append({"name": "Continental Titles", "icon": "/api/images/trophy/ucl", "count": int(intl_p // 3), "category": "Continental"})
-
-    # 6. In-Universe Trophies Won for this specific club
-    # Clubs are duplicated per-season (same game_id, different db ids).
-    # Find ALL club rows with matching game_id, then query trophies for any of those ids.
-    univ_trophies = []
-    if club.game_id:
-        all_club_ids = [
-            c.id for c in db.query(Club.id).filter(
-                Club.career_id == career_id,
-                Club.game_id == club.game_id
-            ).all()
-        ]
-        club_events = db.query(TimelineEvent).filter(
-            TimelineEvent.career_id == career_id,
-            TimelineEvent.event_type == "trophy",
-            TimelineEvent.related_club_id.in_(all_club_ids)
-        ).all()
+    if is_user_club:
+        mgr_name = career.manager_name
     else:
-        club_events = []
-    
-    def _resolve_trophy_icon(desc: str) -> str:
-        """Pick the best available trophy PNG based on description keywords."""
-        dl = desc.lower()
-        if "champions league" in dl or "ucl" in dl:
-            return "/api/images/trophy/ucl"
-        if "europa league" in dl:
-            return "/api/images/trophy/uel"
-        if "conference" in dl:
-            return "/api/images/trophy/uecl"
-        if "premier league" in dl:
-            return "/api/images/trophy/pl"
-        if "bundesliga" in dl:
-            return "/api/images/trophy/bundesliga"
-        if "serie a" in dl or "scudetto" in dl:
-            return "/api/images/trophy/seria_a"
-        if "la liga" in dl or "laliga" in dl or "primera divis" in dl:
-            return "/api/images/trophy/la_liga"
-        if "copa del rey" in dl:
-            return "/api/images/trophy/copa_del_rey"
-        if "coppa italia" in dl:
-            return "/api/images/trophy/coppa_italia"
-        if "dfb" in dl or "pokal" in dl:
-            return "/api/images/trophy/dfb_pokal"
-        if "efl" in dl or "carabao" in dl or "league cup" in dl:
-            return "/api/images/trophy/carabao"
-        if "ligue 1" in dl:
-            return "/api/images/trophy/ligue_1"
-        if "coupe de france" in dl:
-            return "/api/images/trophy/coupe_de_france"
-        if "fa cup" in dl or "community shield" in dl:
-            return "/api/images/trophy/fa"
-        if "wsl" in dl or "nwsl" in dl or "liga f" in dl or "frauen" in dl:
-            return "/api/images/trophy/pl"
-        return "/api/images/trophy/fa"
-    
-    for me in club_events:
-        desc = me.description
-        # Extract clean trophy name from "Club have won the X title in the Y season!"
-        clean_name = desc
-        if " have won the " in desc:
-            clean_name = desc.split(" have won the ", 1)[1]
-            if " title in the " in clean_name:
-                clean_name = clean_name.split(" title in the ", 1)[0]
-        
-        # Get the season year
-        season_obj = db.query(Season).filter(Season.id == me.season_id).first() if me.season_id else None
-        season_year = season_obj.year if season_obj else None
-        
-        univ_trophies.append({
-            "name": clean_name,
-            "icon": _resolve_trophy_icon(desc),
-            "count": 1,
-            "year": season_year,
-            "category": "In-Universe Career"
-        })
+        mgr = db.query(Manager).filter(Manager.career_id == career_id, Manager.club_id == club.id).first()
+        mgr_name = mgr.name if mgr else None
 
+    squad = db.query(Player).filter(
+        Player.career_id == career_id, Player.current_club_id == club.id, Player.is_retired.isnot(True)
+    )
+    squad_count = squad.count()
+    top = squad.order_by(Player.overall.desc()).first()
+
+    spent = db.query(func.coalesce(func.sum(Transfer.fee), 0), func.count(Transfer.id)).filter(
+        Transfer.career_id == career_id, Transfer.to_club_id == club.id).one()
+    received = db.query(func.coalesce(func.sum(Transfer.fee), 0), func.count(Transfer.id)).filter(
+        Transfer.career_id == career_id, Transfer.from_club_id == club.id).one()
+
+    year = current_season_year(db, career_id)
+    standing = (
+        db.query(ClubSeasonStats, Competition)
+        .join(Season, Season.id == ClubSeasonStats.season_id)
+        .outerjoin(Competition, Competition.id == ClubSeasonStats.competition_id)
+        .filter(ClubSeasonStats.club_id == club.id, Season.year == year)
+        .first()
+    )
+    rival = None
+    if club.rival_team_id:
+        rival = db.query(Club).filter(Club.career_id == career_id, Club.game_id == club.rival_team_id).first()
+
+    data = {c.name: getattr(club, c.name) for c in club.__table__.columns}
+    data.update(
+        manager_name=mgr_name,
+        is_user_club=is_user_club,
+        stadium_name=STADIUMS.get(club.game_id),
+        squad_count=squad_count,
+        top_player_name=top.known_name if top else None,
+        top_player_overall=top.overall if top else None,
+        top_player_id=top.id if top else None,
+        top_player_game_id=top.game_id if top else None,
+        transfers_count=spent[1] + received[1],
+        total_spent=float(spent[0]),
+        total_received=float(received[0]),
+        net_spend=float(spent[0]) - float(received[0]),
+        historical_trophies=REAL_WORLD_HONOURS.get(club.game_id, []),
+        universe_trophies=[trophy_dict(*row) for row in trophy_rows(db, career_id, [club.id])],
+        league_position=standing[0].position if standing else None,
+        previous_position=standing[0].previous_position if standing else None,
+        competition_id=standing[1].id if standing and standing[1] else None,
+        rival=club_brief(rival),
+        season_label=season_label(year),
+    )
+    return data
+
+
+@router.get("/careers/{career_id}/competitions/{competition_id}/table")
+def league_table(career_id: int, competition_id: int, db: Session = Depends(get_db)):
+    """Current-season standings for a league, from the save's league-team links."""
+    comp = db.query(Competition).filter(Competition.career_id == career_id, Competition.id == competition_id).first()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    year = current_season_year(db, career_id)
+    rows = (
+        db.query(ClubSeasonStats, Club)
+        .join(Club, Club.id == ClubSeasonStats.club_id)
+        .join(Season, Season.id == ClubSeasonStats.season_id)
+        .filter(ClubSeasonStats.competition_id == comp.id, Season.year == year)
+        .order_by(ClubSeasonStats.position.asc())
+        .all()
+    )
     return {
-        "id": club.id,
-        "career_id": club.career_id,
-        "game_id": club.game_id,
-        "name": club.name,
-        "short_name": club.short_name,
-        "league": club.league,
-        "country": club.country,
-        "overall_rating": club.overall_rating,
-        "defense_rating": club.defense_rating,
-        "midfield_rating": club.midfield_rating,
-        "attack_rating": club.attack_rating,
-        "club_worth": club.club_worth,
-        "domestic_prestige": club.domestic_prestige,
-        "international_prestige": club.international_prestige,
-        "foundation_year": club.foundation_year,
-        "rival_team_id": club.rival_team_id,
-        "created_at": club.created_at,
-        "updated_at": club.updated_at,
-        "manager_name": mgr_name,
-        "stadium_name": stadium_name,
-        "squad_count": squad_count,
-        "top_player_name": top_player_name,
-        "top_player_overall": top_player_ovr,
-        "transfers_count": transfers_count,
-        "total_spent": total_spent,
-        "total_received": total_received,
-        "net_spend": net_spend,
-        "historical_trophies": hist_trophies,
-        "universe_trophies": univ_trophies
+        "competition": {"id": comp.id, "game_id": comp.game_id, "name": comp.name, "type": comp.type},
+        "season_label": season_label(year),
+        "rows": [
+            {
+                "position": s.position,
+                "previous_position": s.previous_position,
+                "club": club_brief(c),
+                "played": s.matches_played,
+                "wins": s.wins, "draws": s.draws, "losses": s.losses,
+                "goals_for": s.goals_for, "goals_against": s.goals_against, "points": s.points,
+            }
+            for s, c in rows
+        ],
     }
-
-

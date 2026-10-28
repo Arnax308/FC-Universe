@@ -1,177 +1,101 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react'
+import { Link, useOutletContext } from 'react-router-dom'
+import { useApi } from './lib/api'
+import { ThemeScope } from './components/broadcast'
+import { ClubCrest } from './components/media'
+import { Async, EmptyState, Icon, PageHeader, PillGroup, RatingBadge } from './components/ui'
+
+const BANNER_COLORS = ['bg-flood text-night', 'bg-derby', 'bg-cyan text-night', 'bg-violet', 'bg-pitch text-night', 'bg-tangerine text-night', 'bg-pink text-night']
+const TOP_LEAGUES = ['England Premier League', 'Spain Primera División', 'Italy Serie A', 'Germany 1. Bundesliga', 'France Ligue 1']
+
+function ClubTile({ club }) {
+  return (
+    <ThemeScope club={club}>
+      <Link
+        to={`/clubs/${club.id}`}
+        className="group relative flex h-full flex-col items-center overflow-hidden rounded-xl border-2 border-club-1/50 bg-night-800 p-3 text-center transition hover:-translate-y-1 hover:border-club-1"
+      >
+        <div className="stripes absolute inset-x-0 top-0 h-10 opacity-80 transition group-hover:h-full group-hover:opacity-20" aria-hidden="true" />
+        <ClubCrest club={club} className="relative mt-2 h-16 w-16 transition group-hover:scale-110" />
+        <span className="relative mt-2 line-clamp-2 font-head text-base font-extrabold uppercase italic leading-tight">{club.name}</span>
+        <span className="relative mt-auto flex items-center gap-1 pt-2">
+          <RatingBadge value={club.overall_rating} size="sm" label="Team overall" />
+          <span className="text-xs text-chalk-dim">
+            <span className="text-derby">A{club.attack_rating ?? '–'}</span> · <span className="text-pitch">M{club.midfield_rating ?? '–'}</span> · <span className="text-cyan">D{club.defense_rating ?? '–'}</span>
+          </span>
+        </span>
+      </Link>
+    </ThemeScope>
+  )
+}
 
 export default function Clubs() {
-  const context = useOutletContext() || {};
-  const { career } = context;
-  const navigate = useNavigate();
+  const { career } = useOutletContext()
+  const state = useApi(career ? `/careers/${career.id}/clubs?limit=3000` : null)
+  const [search, setSearch] = useState('')
+  const [gender, setGender] = useState('men')
 
-  const [clubs, setClubs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedLeague, setSelectedLeague] = useState("ALL");
-
-  useEffect(() => {
-    if (career && career.id) {
-      setLoading(true);
-      fetch(`/api/careers/${career.id}/clubs?limit=2000`)
-        .then(res => res.json())
-        .then(data => {
-          setClubs(Array.isArray(data) ? data : []);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error("Failed to fetch clubs:", err);
-          setLoading(false);
-        });
+  const grouped = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    const clubs = (state.data || []).filter((c) =>
+      c.league && (gender === 'women') === c.name.endsWith('(W)') && (!term || c.name.toLowerCase().includes(term)))
+    const byLeague = {}
+    for (const c of clubs) (byLeague[c.league] ||= []).push(c)
+    for (const list of Object.values(byLeague)) list.sort((a, b) => (b.overall_rating || 0) - (a.overall_rating || 0))
+    const rank = (l) => {
+      const i = TOP_LEAGUES.indexOf(l)
+      return i === -1 ? 99 : i
     }
-  }, [career]);
+    return Object.entries(byLeague).sort(([a, la], [b, lb]) =>
+      rank(a) - rank(b) || (lb[0]?.overall_rating || 0) - (la[0]?.overall_rating || 0))
+  }, [state.data, search, gender])
 
-  const getLogoUrl = (gameId) => {
-    if (!gameId) return null;
-    return `/api/images/club/${gameId}?v=2`;
-  };
-
-  if (!career) {
-    return (
-      <div className="p-8 text-center text-slate-400">
-        <p className="text-lg">Please select or load a career universe first.</p>
-      </div>
-    );
-  }
-
-  // Extract unique leagues for filtering
-  const leagues = ["ALL", ...Array.from(new Set(clubs.map(c => c.league).filter(Boolean)))].sort();
-
-  // Filter clubs based on search query and selected league
-  const filteredClubs = clubs.filter(club => {
-    const matchesSearch = (club.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (club.short_name || "").toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesLeague = selectedLeague === "ALL" || club.league === selectedLeague;
-    return matchesSearch && matchesLeague;
-  });
+  if (!career) return <EmptyState icon="public" title="No universe selected" />
 
   return (
-    <div className="w-full max-w-7xl mx-auto py-4 px-2 sm:px-4">
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-widest mb-2 backdrop-blur-md">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            CLUBS DIRECTORY
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight font-headline-lg">
-            Football Clubs ({filteredClubs.length})
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            All registered football clubs in the <span className="text-emerald-400 font-semibold">{career.team_name || career.name}</span> universe.
-          </p>
-        </div>
-
-        {/* Search Bar */}
-        <div className="relative w-full md:w-80">
-          <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xl">
-            search
-          </span>
-          <input
-            type="text"
-            placeholder="Search all clubs..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#161b22] border border-white/10 rounded-2xl py-2.5 pl-11 pr-4 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 transition-colors shadow-lg"
-          />
-        </div>
+    <div>
+      <PageHeader kicker="Every crest in the universe" title="Clubs" accent="cyan" />
+      <div className="panel mb-6 flex flex-wrap items-center gap-3 p-3">
+        <PillGroup label="Gender" value={gender} onChange={setGender} options={[
+          { value: 'men', label: 'Men', activeClass: 'bg-flood text-night' },
+          { value: 'women', label: 'Women', activeClass: 'bg-pink text-night' },
+        ]} />
+        <label className="relative min-w-[14rem] flex-1 sm:max-w-sm">
+          <span className="sr-only">Search clubs</span>
+          <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-chalk-dim" />
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search clubs…" className="w-full rounded-lg bg-night py-2 pl-10 pr-3 ring-1 ring-white/15 placeholder:text-chalk-dim/60" />
+        </label>
+        {grouped.length > 0 && (
+          <nav aria-label="Jump to league" className="scrollbar-none flex w-full gap-1 overflow-x-auto">
+            {grouped.slice(0, 12).map(([league], i) => (
+              <a key={league} href={`#league-${i}`} className={`shrink-0 rounded px-2 py-1 font-head text-xs font-bold uppercase ${BANNER_COLORS[i % BANNER_COLORS.length]}`}>{league.replace(/^\w+ /, '')}</a>
+            ))}
+          </nav>
+        )}
       </div>
 
-      {/* League Filter Pills */}
-      {leagues.length > 1 && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-none">
-          {leagues.map(l => (
-            <button
-              key={l}
-              onClick={() => setSelectedLeague(l)}
-              className={`px-4 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all duration-200 border ${
-                selectedLeague === l
-                  ? 'bg-emerald-400 text-slate-950 border-emerald-400 shadow-[0_0_15px_rgba(78,222,163,0.3)]'
-                  : 'bg-white/5 text-slate-400 border-white/10 hover:border-white/20 hover:text-white'
-              }`}
-            >
-              {l === "ALL" ? `All Clubs (${clubs.length})` : l}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Loading state */}
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-24">
-          <div className="w-12 h-12 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin mb-4 shadow-[0_0_20px_rgba(78,222,163,0.3)]"></div>
-          <p className="text-slate-400 text-xs font-mono uppercase tracking-widest">Loading Clubs Database...</p>
-        </div>
-      ) : filteredClubs.length === 0 ? (
-        <div className="py-20 text-center text-slate-500">
-          <span className="material-symbols-outlined text-4xl mb-2">search_off</span>
-          <p className="text-base font-semibold">No clubs found matching "{searchQuery}"</p>
-        </div>
-      ) : (
-        /* Clubs Grid */
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
-          {filteredClubs.map(club => (
-            <div
-              key={club.id}
-              onClick={() => navigate(`/clubs/${club.id}`)}
-              className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-5 flex flex-col items-center justify-between text-center transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_20px_35px_rgba(0,0,0,0.6)] hover:border-emerald-500/40 group cursor-pointer relative overflow-hidden"
-            >
-              {/* Subtle light effect at top */}
-              <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-
-              {/* Club Crest Logo */}
-              <div className="w-20 h-20 mb-3 relative flex items-center justify-center">
-                <img 
-                  src={getLogoUrl(club.game_id)} 
-                  alt={club.name}
-                  className="w-full h-full object-contain drop-shadow-xl group-hover:scale-110 transition-transform duration-300"
-                  onError={(e) => { 
-                    e.target.style.display = 'none'; 
-                    if (e.target.nextSibling) e.target.nextSibling.style.display = 'block';
-                  }}
-                />
-                <span className="material-symbols-outlined text-slate-600 text-4xl hidden">shield</span>
-              </div>
-
-              {/* Club Name & League */}
-              <div className="w-full">
-                <h3 className="text-sm font-bold text-white leading-snug group-hover:text-emerald-400 transition-colors line-clamp-1">
-                  {club.name}
-                </h3>
-                {club.league && (
-                  <p className="text-[11px] text-slate-400 font-medium truncate mt-0.5">
-                    {club.league}
-                  </p>
-                )}
-              </div>
-
-              {/* Ratings Summary (if available) */}
-              {club.overall_rating ? (
-                <div className="mt-3 w-full pt-3 border-t border-white/5 flex items-center justify-around text-[10px] text-slate-400 font-mono">
-                  <div>
-                    <span className="text-slate-500 uppercase block">OVR</span>
-                    <span className="font-bold text-emerald-400">{club.overall_rating}</span>
+      <Async state={state} loadingLabel="Walking out the tunnel">
+        {() => grouped.length === 0 ? (
+          <EmptyState icon="shield" title={search ? `No clubs match “${search}”` : 'No clubs'} />
+        ) : (
+          <div className="space-y-10">
+            {grouped.map(([league, clubs], i) => (
+              <section key={league} id={`league-${i}`} className="scroll-mt-32">
+                <div className="mb-3 flex items-center gap-3">
+                  <div className={`skew-plate px-4 py-1 ${BANNER_COLORS[i % BANNER_COLORS.length]}`}>
+                    <h2 className="unskew text-2xl">{league}</h2>
                   </div>
-                  <div>
-                    <span className="text-slate-500 uppercase block">ATT</span>
-                    <span className="font-bold text-white">{club.attack_rating || "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 uppercase block">DEF</span>
-                    <span className="font-bold text-white">{club.defense_rating || "-"}</span>
-                  </div>
+                  <span className="label">{clubs.length} clubs</span>
+                  <span className="h-1 flex-1 bg-gradient-to-r from-white/20 to-transparent" aria-hidden="true" />
                 </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      )}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-7">
+                  {clubs.map((c) => <ClubTile key={c.id} club={c} />)}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+      </Async>
     </div>
-  );
+  )
 }

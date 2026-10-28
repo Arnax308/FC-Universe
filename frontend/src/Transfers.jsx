@@ -1,201 +1,101 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext, Link } from 'react-router-dom';
+import { useState } from 'react'
+import { Link, useOutletContext } from 'react-router-dom'
+import { qs, useApi } from './lib/api'
+import { formatFee, formatMoney, seasonLabel } from './lib/format'
+import { ThemeScope } from './components/broadcast'
+import { ClubCrest, PlayerFace } from './components/media'
+import { Async, EmptyState, Icon, PageHeader, PillGroup, PositionChip, RatingBadge, StatTile } from './components/ui'
+
+const TYPE_STYLE = {
+  buy: { label: 'Signed', cls: 'bg-pitch text-night' },
+  loan: { label: 'Loan', cls: 'bg-cyan text-night' },
+  free: { label: 'Free', cls: 'bg-violet text-chalk' },
+  release: { label: 'Released', cls: 'bg-derby text-chalk' },
+}
+
+function Deal({ t, i }) {
+  const style = TYPE_STYLE[t.type] || { label: t.type, cls: 'bg-night-600' }
+  return (
+    <li className="animate-rise" style={{ animationDelay: `${Math.min(i, 20) * 30}ms` }}>
+      <ThemeScope club={t.to_club}>
+        <div className="relative overflow-hidden rounded-xl bg-night-800 ring-1 ring-white/10">
+          <div className="stripes absolute inset-y-0 right-0 w-2" aria-hidden="true" />
+          <div className="grid grid-cols-[auto_1fr] items-center gap-3 p-3 sm:grid-cols-[auto_1fr_auto_auto] sm:gap-5 sm:p-4">
+            <div className="relative">
+              <PlayerFace gameId={t.player_game_id} name={t.player_name} className="h-14 w-14 rounded-full bg-night-700" />
+              <span className="absolute -bottom-1 -right-1"><RatingBadge value={t.player_overall} size="sm" /></span>
+            </div>
+            <div className="min-w-0">
+              <Link to={`/players/${t.player_id}`} className="block truncate font-head text-xl font-black uppercase italic hover:underline">{t.player_name}</Link>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+                <PositionChip pos={t.player_position} />
+                <span className={`chip ${style.cls}`}>{style.label}</span>
+                <span className="text-chalk-dim">{seasonLabel(t.season_year)}</span>
+              </div>
+            </div>
+            <div className="col-span-2 flex items-center justify-center gap-2 sm:col-span-1">
+              <Link to={t.from_club ? `/clubs/${t.from_club.id}` : '#'} className="flex items-center gap-2" title={t.from_club_name}>
+                <ClubCrest club={t.from_club} name={t.from_club_name} className="h-10 w-10" />
+              </Link>
+              <Icon name="keyboard_double_arrow_right" className="text-4xl text-flood" />
+              <Link to={t.to_club ? `/clubs/${t.to_club.id}` : '#'} className="flex items-center gap-2" title={t.to_club_name}>
+                <ClubCrest club={t.to_club} name={t.to_club_name} className="h-10 w-10" />
+              </Link>
+            </div>
+            <div className="col-span-2 text-right sm:col-span-1">
+              <div className="num text-3xl text-flood">{t.type === 'loan' ? 'LOAN' : formatFee(t.fee)}</div>
+              <div className="label truncate">to {t.to_club_name || '—'}</div>
+            </div>
+          </div>
+        </div>
+      </ThemeScope>
+    </li>
+  )
+}
 
 export default function Transfers() {
-  const { career } = useOutletContext();
-  const [transfers, setTransfers] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (career && career.id) {
-      setLoading(true);
-      fetch(`/api/careers/${career.id}/transfers?limit=150`)
-        .then(res => res.json())
-        .then(data => {
-          setTransfers(data);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error("Failed to fetch transfers:", err);
-          setLoading(false);
-        });
-    }
-  }, [career]);
-
-  const getMinifaceUrl = (gameId) => {
-    if (!gameId) return null;
-    return `/api/images/player/${gameId}?v=2`;
-  };
-
-  const getLogoUrl = (gameId) => {
-    if (!gameId) return null;
-    return `/api/images/club/${gameId}?v=2`;
-  };
-
-  if (!career) {
-    return <div className="p-8 text-on-surface">Please load a career first.</div>;
-  }
-
-  const getTypeStyle = (type) => {
-    switch (type) {
-      case 'buy':
-        return 'bg-primary/10 border-primary/20 text-primary';
-      case 'loan':
-        return 'bg-secondary-container/10 border-secondary-container/20 text-secondary';
-      case 'free':
-        return 'bg-tertiary/10 border-tertiary/20 text-tertiary';
-      case 'release':
-        return 'bg-error/10 border-error/20 text-error';
-      default:
-        return 'bg-white/5 border-white/10 text-on-surface-variant';
-    }
-  };
-
-  const getTypeLabel = (type) => {
-    switch (type) {
-      case 'buy': return 'Transfer';
-      case 'loan': return 'Loan';
-      case 'free': return 'Free Agent';
-      case 'release': return 'Released';
-      default: return type || 'Transfer';
-    }
-  };
+  const { career } = useOutletContext()
+  const [type, setType] = useState('')
+  const state = useApi(career ? `/careers/${career.id}/transfers${qs({ limit: 300, type })}` : null)
+  if (!career) return <EmptyState icon="public" title="No universe selected" />
 
   return (
-    <div className="w-full">
-      <div className="mb-8">
-        <h1 className="text-headline-lg font-headline-md text-on-surface mb-2 tracking-tight">Transfers Registry</h1>
-        <p className="text-body-lg text-on-surface-variant">Player moves, loan spells, and free signings in the {career.name} universe.</p>
-      </div>
+    <div>
+      <div className="hazard -mx-4 mb-6 h-3 sm:-mx-6" aria-hidden="true" />
+      <PageHeader kicker="Deadline day · live" title="Transfer centre" accent="tangerine" />
 
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="animate-pulse flex flex-col items-center">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-on-surface-variant text-label-caps font-label-caps">Loading transfers history...</p>
-          </div>
-        </div>
-      ) : transfers.length === 0 ? (
-        <div className="glass-panel border border-white/5 rounded-2xl p-12 text-center max-w-2xl mx-auto">
-          <span className="material-symbols-outlined text-on-surface-variant text-6xl mb-4">swap_horiz</span>
-          <h3 className="text-body-lg font-headline-md font-bold text-on-surface mb-2">No Transfers Recorded</h3>
-          <p className="text-body-md text-on-surface-variant/80">Transfers are automatically detected and archived as you advance your Career Mode and re-import save updates.</p>
-        </div>
-      ) : (
-        <div className="glass-panel border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-white/5 bg-white/5 text-label-caps font-label-caps text-on-surface-variant text-xs tracking-wider">
-                  <th className="py-4 px-6 font-bold">Player</th>
-                  <th className="py-4 px-6 font-bold">From</th>
-                  <th className="py-4 px-6 font-bold text-center"></th>
-                  <th className="py-4 px-6 font-bold">To</th>
-                  <th className="py-4 px-6 font-bold text-center">Deal</th>
-                  <th className="py-4 px-6 font-bold text-right">Fee</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {transfers.map((trans) => (
-                  <tr key={trans.id} className="hover:bg-white/5 transition-colors group">
-                    {/* Player column */}
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-container border border-white/10 flex-shrink-0 flex items-center justify-center relative">
-                          {trans.player_game_id >= 270000 ? (
-                            <span className="material-symbols-outlined text-on-surface-variant text-lg">person</span>
-                          ) : (
-                            <img
-                              src={getMinifaceUrl(trans.player_game_id)}
-                              alt={trans.player_name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'flex';
-                              }}
-                            />
-                          )}
-                          <span className="hidden material-symbols-outlined text-on-surface-variant text-lg absolute inset-0 items-center justify-center bg-surface-container z-0">person</span>
-                        </div>
-                        <div className="min-w-0">
-                          <Link to={`/players/${trans.player_id}`} className="text-body-md font-bold text-on-surface hover:text-primary transition-colors block truncate">
-                            {trans.player_name}
-                          </Link>
-                          {trans.player_game_id >= 270000 && (
-                            <span className="text-[9px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded border border-primary/20 mt-0.5 inline-block">Youth Academy</span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* From Club column */}
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 flex items-center justify-center p-0.5 flex-shrink-0 bg-surface-container/50 border border-white/5 rounded-full overflow-hidden">
-                          {trans.from_club_game_id ? (
-                            <img
-                              src={getLogoUrl(trans.from_club_game_id)}
-                              alt={trans.from_club_name}
-                              className="w-full h-full object-contain"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'block';
-                              }}
-                            />
-                          ) : null}
-                          <span className="material-symbols-outlined text-on-surface-variant text-sm hidden">shield</span>
-                        </div>
-                        <span className="text-body-md text-on-surface truncate max-w-[150px]">{trans.from_club_name || "Unknown Club"}</span>
-                      </div>
-                    </td>
-
-                    {/* Arrow connector */}
-                    <td className="py-4 px-6 text-center text-on-surface-variant/40 group-hover:text-primary transition-colors">
-                      <span className="material-symbols-outlined text-lg">arrow_right_alt</span>
-                    </td>
-
-                    {/* To Club column */}
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 flex items-center justify-center p-0.5 flex-shrink-0 bg-surface-container/50 border border-white/5 rounded-full overflow-hidden">
-                          {trans.to_club_game_id ? (
-                            <img
-                              src={getLogoUrl(trans.to_club_game_id)}
-                              alt={trans.to_club_name}
-                              className="w-full h-full object-contain"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'block';
-                              }}
-                            />
-                          ) : null}
-                          <span className="material-symbols-outlined text-on-surface-variant text-sm hidden">shield</span>
-                        </div>
-                        <span className="text-body-md text-on-surface truncate max-w-[150px]">{trans.to_club_name || "Unknown Club"}</span>
-                      </div>
-                    </td>
-
-                    {/* Deal Type Badge column */}
-                    <td className="py-4 px-6 text-center">
-                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${getTypeStyle(trans.type)}`}>
-                        {getTypeLabel(trans.type)}
-                      </span>
-                    </td>
-
-                    {/* Fee column */}
-                    <td className="py-4 px-6 text-right font-data-mono text-body-md text-on-surface font-semibold">
-                      {trans.type === 'buy' ? '€0' : (trans.type === 'loan' ? 'Loan' : 'Free')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <Async state={state} loadingLabel="Ringing agents">
+        {(list) => {
+          const fees = list.filter((t) => t.type === 'buy').map((t) => t.fee || 0)
+          const record = list.reduce((best, t) => (t.type === 'buy' && (t.fee || 0) > (best?.fee || 0) ? t : best), null)
+          return (
+            <>
+              <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <StatTile label="Deals" value={list.length} color="tangerine" icon="handshake" />
+                <StatTile label="Total fees" value={formatMoney(fees.reduce((a, b) => a + b, 0))} color="flood" icon="payments" />
+                <StatTile label="Loans" value={list.filter((t) => t.type === 'loan').length} color="cyan" icon="sync_alt" />
+                <StatTile label="Record deal" value={record ? formatFee(record.fee) : '—'} sub={record?.player_name} color="derby" icon="local_fire_department" />
+              </div>
+              <div className="mb-6">
+                <PillGroup label="Deal type" value={type} onChange={setType} options={[
+                  { value: '', label: 'All deals' },
+                  { value: 'buy', label: 'Signings', activeClass: 'bg-pitch text-night' },
+                  { value: 'loan', label: 'Loans', activeClass: 'bg-cyan text-night' },
+                  { value: 'free', label: 'Free agents', activeClass: 'bg-violet text-chalk' },
+                  { value: 'release', label: 'Releases', activeClass: 'bg-derby text-chalk' },
+                ]} />
+              </div>
+              {list.length ? (
+                <ul className="space-y-3">{list.map((t, i) => <Deal key={t.id} t={t} i={i} />)}</ul>
+              ) : (
+                <EmptyState icon="swap_horiz" title="The window is quiet">
+                  Moves are spotted by comparing saves — play on, save, and re-sync this universe to see who changed clubs.
+                </EmptyState>
+              )}
+            </>
+          )
+        }}
+      </Async>
     </div>
-  );
+  )
 }

@@ -1,519 +1,250 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
+import { useState } from 'react'
+import { Link, useOutletContext, useParams } from 'react-router-dom'
+import { useApi } from './lib/api'
+import { formatFee, formatMoney, ordinal, POSITION_GROUP, surname } from './lib/format'
+import { LowerThird, PitchLines, PlayerRow, ThemeScope } from './components/broadcast'
+import { ClubCrest, PlayerFace, TrophyImage } from './components/media'
+import { Async, EmptyState, Icon, RatingBadge, SectionBanner, StatTile, Tabs } from './components/ui'
 
-function TrophyImage({ src, alt }) {
-  const [failed, setFailed] = useState(false);
-  if (failed || !src) {
-    return <span className="text-3xl">🏆</span>;
+const FORMATION = [
+  { group: 'att', count: 3 },
+  { group: 'mid', count: 3 },
+  { group: 'def', count: 4 },
+  { group: 'gk', count: 1 },
+]
+
+function pickXI(squad) {
+  const pool = [...squad].sort((a, b) => (b.overall || 0) - (a.overall || 0))
+  const used = new Set()
+  const lines = FORMATION.map(({ group, count }) => {
+    const line = pool.filter((p) => POSITION_GROUP[p.position] === group && !used.has(p.id)).slice(0, count)
+    line.forEach((p) => used.add(p.id))
+    return { group, count, line }
+  })
+  // Top up short lines with the best remaining outfielders
+  for (const l of lines) {
+    while (l.line.length < l.count) {
+      const next = pool.find((p) => !used.has(p.id) && p.position && (l.group === 'gk' || p.position !== 'GK'))
+      if (!next) break
+      used.add(next.id)
+      l.line.push(next)
+    }
   }
+  return lines
+}
+
+function Formation({ squad }) {
+  const lines = pickXI(squad)
   return (
-    <img 
-      src={src} 
-      alt={alt || "Trophy"} 
-      className="w-10 h-10 object-contain drop-shadow-lg group-hover:scale-110 transition-transform" 
-      onError={() => setFailed(true)}
-    />
-  );
+    <div className="grass relative overflow-hidden rounded-2xl border-4 border-white/20 px-2 py-6">
+      <PitchLines className="rotate-0" />
+      <div className="relative flex flex-col gap-6">
+        {lines.map(({ group, line }) => (
+          <div key={group} className="flex justify-center gap-2 sm:gap-6">
+            {line.map((p) => (
+              <Link key={p.id} to={`/players/${p.id}`} className="group flex w-16 flex-col items-center text-center sm:w-24">
+                <div className="relative">
+                  <PlayerFace gameId={p.game_id} name={p.known_name} className="h-12 w-12 rounded-full bg-club-1 ring-4 ring-club-2 transition group-hover:scale-110 sm:h-16 sm:w-16" />
+                  <span className="num absolute -right-2 -top-1 rounded bg-night px-1 text-sm text-flood">{p.overall}</span>
+                </div>
+                <span className="mt-1 w-full truncate rounded bg-black/70 px-1 font-head text-xs font-bold uppercase sm:text-sm">{surname(p.known_name)}</span>
+              </Link>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function LeagueTable({ careerId, competitionId, clubId }) {
+  const state = useApi(competitionId ? `/careers/${careerId}/competitions/${competitionId}/table` : null)
+  if (!competitionId) return <EmptyState icon="table_chart" title="No league table for this club" />
+  return (
+    <Async state={state} loadingLabel="Fetching the table">
+      {(t) => (
+        <div className="panel overflow-hidden">
+          <div className="flex items-center justify-between bg-black/40 px-4 py-3">
+            <h3 className="text-2xl">{t.competition.name}</h3>
+            <span className="label">{t.season_label} · current positions</span>
+          </div>
+          <ol>
+            {t.rows.map((r) => {
+              const mine = r.club.id === clubId
+              const move = r.previous_position && r.position ? r.previous_position - r.position : 0
+              return (
+                <li key={r.club.id} className={`flex items-center gap-3 border-t border-white/5 px-4 py-2 ${mine ? 'bg-club-1/25' : ''}`}>
+                  <span className={`num w-8 text-center text-xl ${r.position <= 4 ? 'text-cyan' : r.position > t.rows.length - 3 ? 'text-derby' : ''}`}>{r.position ?? '–'}</span>
+                  <ClubCrest club={r.club} className="h-7 w-7" />
+                  <Link to={`/clubs/${r.club.id}`} className={`min-w-0 flex-1 truncate hover:underline ${mine ? 'font-bold' : ''}`}>{r.club.name}</Link>
+                  <span className="label hidden sm:inline">Last yr {ordinal(r.previous_position)}</span>
+                  {move !== 0 && <Icon name={move > 0 ? 'arrow_drop_up' : 'arrow_drop_down'} className={`text-3xl ${move > 0 ? 'text-pitch' : 'text-derby'}`} />}
+                </li>
+              )
+            })}
+          </ol>
+        </div>
+      )}
+    </Async>
+  )
+}
+
+function Club({ club, careerId }) {
+  const [tab, setTab] = useState('overview')
+  const squad = useApi(`/careers/${careerId}/players?club_id=${club.id}&limit=80`)
+  const transfers = useApi(tab === 'transfers' ? `/careers/${careerId}/transfers?club_id=${club.id}&limit=200` : null)
+
+  return (
+    <ThemeScope club={club}>
+      <Link to="/clubs" className="mb-4 inline-flex items-center gap-1 font-head font-bold uppercase text-chalk-dim hover:text-chalk">
+        <Icon name="arrow_back" /> Clubs
+      </Link>
+
+      <section className="relative mb-6 overflow-hidden rounded-3xl border-2 border-club-1">
+        <div className="stripes absolute inset-0" aria-hidden="true" />
+        <div className="absolute inset-0 bg-gradient-to-r from-night via-night/80 to-night/20" aria-hidden="true" />
+        <ClubCrest club={club} className="pointer-events-none absolute -right-10 -top-10 h-72 w-72 opacity-20 blur-[1px]" />
+        <div className="relative flex flex-col gap-5 p-5 sm:p-8 md:flex-row md:items-end">
+          <ClubCrest club={club} className="h-28 w-28 sm:h-36 sm:w-36" />
+          <div className="min-w-0 flex-1">
+            <div className="mb-3 flex flex-wrap gap-2">
+              {club.league && <span className="chip bg-chalk text-night">{club.league}</span>}
+              {club.stadium_name && <span className="chip bg-black/60"><Icon name="stadium" className="text-base" /> {club.stadium_name}</span>}
+              {club.is_user_club && <span className="chip bg-flood text-night">Your club</span>}
+              {club.league_position && <span className="chip bg-club-1 text-club-ink">{ordinal(club.league_position)} in league</span>}
+            </div>
+            <LowerThird title={club.name} subtitle={club.manager_name ? `Boss · ${club.manager_name}` : null} />
+          </div>
+          <div className="flex gap-2">
+            <RatingBadge value={club.overall_rating} size="lg" label="Team overall" />
+          </div>
+        </div>
+      </section>
+
+      <Tabs
+        label="Club sections"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'overview', label: 'Overview', icon: 'dashboard' },
+          { id: 'squad', label: 'Squad', icon: 'groups' },
+          { id: 'table', label: 'Table', icon: 'leaderboard' },
+          { id: 'honours', label: 'Honours', icon: 'trophy' },
+          { id: 'transfers', label: 'Transfers', icon: 'swap_horiz' },
+        ]}
+      />
+
+      <div className="mt-6">
+        {tab === 'overview' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatTile label="Attack" value={club.attack_rating} color="derby" icon="sports_soccer" />
+              <StatTile label="Midfield" value={club.midfield_rating} color="pitch" icon="hub" />
+              <StatTile label="Defence" value={club.defense_rating} color="cyan" icon="shield" />
+              <StatTile label="Squad size" value={club.squad_count} color="flood" icon="groups" />
+            </div>
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+              <Async state={squad} loadingLabel="Naming the XI">
+                {(list) => list.length ? (
+                  <div>
+                    <SectionBanner title="Best XI" kicker="4-3-3" color="club" />
+                    <Formation squad={list} />
+                  </div>
+                ) : <EmptyState icon="groups" title="No registered players" />}
+              </Async>
+              <div className="space-y-3">
+                <StatTile label="Net spend" value={formatMoney(club.net_spend)} color={club.net_spend > 0 ? 'derby' : 'pitch'} icon="payments"
+                  sub={`${formatFee(club.total_spent)} in · ${formatFee(club.total_received)} out`} />
+                <StatTile label="Domestic prestige" value={club.domestic_prestige ? `${club.domestic_prestige}/10` : '—'} color="violet" icon="workspace_premium" />
+                <StatTile label="Int'l prestige" value={club.international_prestige ? `${club.international_prestige}/10` : '—'} color="tangerine" icon="public" />
+                {club.rival && (
+                  <Link to={`/clubs/${club.rival.id}`} className="panel flex items-center gap-3 border-l-4 border-derby p-4 hover:bg-white/5">
+                    <ClubCrest club={club.rival} className="h-10 w-10" />
+                    <div><div className="label text-derby">Rival</div><div className="font-head text-lg font-bold uppercase">{club.rival.name}</div></div>
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === 'squad' && (
+          <Async state={squad} loadingLabel="Checking the squad list">
+            {(list) => list.length ? (
+              <div className="panel grid gap-x-6 p-3 md:grid-cols-2">
+                {list.map((p) => <PlayerRow key={p.id} player={p} to={`/players/${p.id}`} />)}
+              </div>
+            ) : <EmptyState icon="groups" title="No registered players" />}
+          </Async>
+        )}
+
+        {tab === 'table' && <LeagueTable careerId={careerId} competitionId={club.competition_id} clubId={club.id} />}
+
+        {tab === 'honours' && (
+          <div className="space-y-8">
+            <section>
+              <SectionBanner title="Won in this universe" color="flood" />
+              {club.universe_trophies?.length ? (
+                <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                  {club.universe_trophies.map((t, i) => (
+                    <li key={i} className="relative flex flex-col items-center overflow-hidden rounded-2xl bg-gradient-to-b from-flood/25 via-night-800 to-night-800 p-4 text-center ring-1 ring-flood/40">
+                      <div className="absolute inset-x-0 top-0 h-24 bg-[radial-gradient(closest-side,rgb(255_230_0/.35),transparent)]" aria-hidden="true" />
+                      <TrophyImage src={t.icon} name={t.name} className="relative h-20 w-20" />
+                      <span className="relative mt-2 font-head text-lg font-extrabold uppercase italic leading-tight">{t.name}</span>
+                      <span className="num relative text-flood">{t.season_label}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <EmptyState icon="trophy" title="Cabinet’s empty — for now" />}
+            </section>
+            {club.historical_trophies?.length > 0 && (
+              <section>
+                <SectionBanner title="Real-world history" kicker="Before the save began" color="violet" />
+                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {club.historical_trophies.map((t) => (
+                    <li key={t.name} className="panel flex items-center gap-3 p-3">
+                      <TrophyImage src={t.icon} name={t.name} className="h-12 w-12" />
+                      <div>
+                        <div className="num text-3xl text-flood">{t.count}×</div>
+                        <div className="font-head text-sm font-bold uppercase leading-tight">{t.name}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        )}
+
+        {tab === 'transfers' && (
+          <Async state={transfers} loadingLabel="Checking the ledger">
+            {(list) => list.length ? (
+              <ul className="space-y-2">
+                {list.map((t) => {
+                  const incoming = t.to_club_id === club.id
+                  return (
+                    <li key={t.id} className={`panel flex items-center gap-3 border-l-8 p-3 ${incoming ? 'border-pitch' : 'border-derby'}`}>
+                      <span className={`chip ${incoming ? 'bg-pitch text-night' : 'bg-derby'}`}>{incoming ? 'In' : 'Out'}</span>
+                      <PlayerFace gameId={t.player_game_id} name={t.player_name} className="h-10 w-10" />
+                      <Link to={`/players/${t.player_id}`} className="min-w-0 flex-1 truncate font-semibold hover:underline">{t.player_name}</Link>
+                      <ClubCrest club={incoming ? t.from_club : t.to_club} className="h-7 w-7" />
+                      <span className="num text-lg text-flood">{t.type === 'loan' ? 'Loan' : formatFee(t.fee)}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : <EmptyState icon="swap_horiz" title="No transfers logged yet">Transfers appear when you re-import a save after players have moved.</EmptyState>}
+          </Async>
+        )}
+      </div>
+    </ThemeScope>
+  )
 }
 
 export default function ClubProfile() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const context = useOutletContext() || {};
-  const { career } = context;
-
-  const [club, setClub] = useState(null);
-  const [squad, setSquad] = useState([]);
-  const [transfers, setTransfers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('OVERVIEW');
-
-  useEffect(() => {
-    if (career && career.id && id) {
-      setLoading(true);
-      
-      // Fetch dynamic club details
-      const p1 = fetch(`/api/careers/${career.id}/clubs/${id}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && (data.id || data.name)) {
-            setClub(data);
-          }
-        })
-        .catch(err => console.error("Failed to fetch club details:", err));
-
-      // Fetch squad players for this club
-      const p2 = fetch(`/api/careers/${career.id}/players?club_id=${id}&limit=500`)
-        .then(res => res.json())
-        .then(data => {
-          setSquad(Array.isArray(data) ? data : []);
-        })
-        .catch(err => console.error("Failed to fetch squad:", err));
-
-      // Fetch transfers for this club
-      const p3 = fetch(`/api/careers/${career.id}/transfers?club_id=${id}&limit=200`)
-        .then(res => res.json())
-        .then(data => {
-          setTransfers(Array.isArray(data) ? data : []);
-        })
-        .catch(err => console.error("Failed to fetch transfers:", err));
-
-      Promise.all([p1, p2, p3]).finally(() => setLoading(false));
-    }
-  }, [career, id]);
-
-  const getLogoUrl = (gameId) => {
-    if (!gameId) return null;
-    return `/api/images/club/${gameId}?v=2`;
-  };
-
-  const getPlayerPhotoUrl = (gameId) => {
-    if (!gameId) return null;
-    return `/api/images/player/${gameId}?v=2`;
-  };
-
-  if (!career) {
-    return <div className="p-8 text-center text-slate-400">Please select a career first.</div>;
-  }
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24">
-        <div className="w-12 h-12 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin mb-4 shadow-[0_0_20px_rgba(78,222,163,0.3)]"></div>
-        <p className="text-slate-400 text-xs font-mono uppercase tracking-widest">Loading Club Data...</p>
-      </div>
-    );
-  }
-
-  const clubName = club?.name || "Club Profile";
-  const stadiumName = club?.stadium_name || "Club Stadium";
-  const leagueName = club?.league || "Unassigned League";
-  const managerName = club?.manager_name || "Manager";
-
-  // Dynamic calculations from squad
-  const topPlayer = squad.length > 0 ? [...squad].sort((a, b) => (b.overall || 0) - (a.overall || 0))[0] : null;
-  const avgOverall = squad.length > 0 ? (squad.reduce((acc, p) => acc + (p.overall || 0), 0) / squad.length).toFixed(1) : (club?.overall_rating || "-");
-
-  // Dynamic net spend
-  const netSpendEur = club?.net_spend !== undefined ? club.net_spend : 0;
-  const formattedNetSpend = netSpendEur >= 0 
-    ? `€${(netSpendEur / 1000000).toFixed(1)}M Spent` 
-    : `€${(Math.abs(netSpendEur) / 1000000).toFixed(1)}M Profit`;
-
-  // Trophies lists
-  const historicalTrophies = Array.isArray(club?.historical_trophies) ? club.historical_trophies : [];
-  const universeTrophies = Array.isArray(club?.universe_trophies) ? club.universe_trophies : [];
-  const totalHistoricalCount = historicalTrophies.reduce((sum, t) => sum + (t?.count || 0), 0) + universeTrophies.reduce((sum, t) => sum + (t?.count || 0), 0);
-
-  return (
-    <div className="w-full max-w-7xl mx-auto py-2 px-2 sm:px-4 space-y-6">
-      {/* Back Button */}
-      <button 
-        onClick={() => navigate('/clubs')}
-        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-semibold transition-all border border-white/5"
-      >
-        <span className="material-symbols-outlined text-sm">arrow_back</span>
-        Back to Clubs
-      </button>
-
-      {/* Main Club Banner Hero */}
-      <div className="relative rounded-3xl overflow-hidden bg-slate-900 border border-white/10 shadow-2xl">
-        {/* Background Stadium Image */}
-        <div className="relative h-64 sm:h-80 w-full overflow-hidden">
-          <img 
-            src="/assets/stadium1.png" 
-            alt="Stadium" 
-            className="w-full h-full object-cover opacity-50"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0e1217] via-[#0e1217]/60 to-transparent"></div>
-        </div>
-
-        {/* Hero Content Overlay */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="flex items-end gap-5">
-            {/* Club Logo Crest */}
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-black/60 border-2 border-white/20 p-2 flex items-center justify-center backdrop-blur-xl shadow-2xl flex-shrink-0">
-              {club?.game_id ? (
-                <img 
-                  src={getLogoUrl(club.game_id)} 
-                  alt={clubName} 
-                  className="w-full h-full object-contain drop-shadow-xl"
-                  onError={(e) => { e.target.style.display = 'none'; }}
-                />
-              ) : (
-                <span className="material-symbols-outlined text-slate-400 text-5xl">shield</span>
-              )}
-            </div>
-
-            {/* Club Info */}
-            <div className="space-y-1">
-              <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight font-headline-lg">
-                {clubName}
-              </h1>
-              <div className="flex items-center gap-2 pt-1 flex-wrap">
-                <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
-                  {leagueName}
-                </span>
-                <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-slate-300 text-xs font-medium flex items-center gap-1">
-                  <span className="material-symbols-outlined text-xs">stadium</span>
-                  {stadiumName}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Header Cards: Manager & Financial Standing */}
-          <div className="flex items-center gap-4 bg-black/40 border border-white/10 rounded-2xl p-4 backdrop-blur-md self-start md:self-auto">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Manager</p>
-              <p className="text-sm font-bold text-white mt-0.5">{managerName}</p>
-            </div>
-            <div className="h-8 w-px bg-white/10"></div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Net Transfer Spend</p>
-              <p className="text-sm font-bold text-emerald-400 mt-0.5">
-                {formattedNetSpend}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabs Bar */}
-      <div className="flex items-center gap-2 overflow-x-auto border-b border-white/10 pb-2 scrollbar-none">
-        {[
-          'OVERVIEW',
-          'TROPHY CABINET',
-          'CURRENT SQUAD',
-          'TRANSFERS',
-          'STATISTICS'
-        ].map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-xs font-bold tracking-wider transition-all whitespace-nowrap border-b-2 ${
-              activeTab === tab 
-                ? 'border-emerald-400 text-emerald-400' 
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* TAB 1: OVERVIEW */}
-      {activeTab === 'OVERVIEW' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: Dynamic Club Rating & Squad Summary */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Club Ratings Overview */}
-            <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-white">Club Ratings</h3>
-                  <p className="text-xs text-slate-400">Tactical Ratings & Squad Composition</p>
-                </div>
-                <span className="material-symbols-outlined text-emerald-400">equalizer</span>
-              </div>
-
-              {/* 4 Ratings Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-center">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Overall</p>
-                  <p className="text-2xl font-black text-emerald-400 mt-1">{club?.overall_rating || avgOverall || "-"}</p>
-                </div>
-                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-center">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Attack</p>
-                  <p className="text-2xl font-black text-white mt-1">{club?.attack_rating || "-"}</p>
-                </div>
-                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-center">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Midfield</p>
-                  <p className="text-2xl font-black text-white mt-1">{club?.midfield_rating || "-"}</p>
-                </div>
-                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-center">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Defense</p>
-                  <p className="text-2xl font-black text-white mt-1">{club?.defense_rating || "-"}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Metrics Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Star Player Card */}
-              <div className="bg-[#12161f]/80 border border-white/10 rounded-2xl p-5 flex items-center justify-between shadow-xl">
-                <div className="min-w-0 pr-2">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Star Player</p>
-                  <p className="text-lg font-black text-white truncate mt-0.5">
-                    {topPlayer ? (topPlayer.known_name || `${topPlayer.first_name} ${topPlayer.last_name}`) : (club?.top_player_name || "None")}
-                  </p>
-                  <p className="text-xs text-emerald-400 font-semibold mt-0.5">
-                    {topPlayer ? `${topPlayer.position || 'FW'} • OVR ${topPlayer.overall}` : ''}
-                  </p>
-                </div>
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-black text-lg">
-                  {topPlayer ? topPlayer.overall : (club?.top_player_overall || "-")}
-                </div>
-              </div>
-
-              {/* Total Squad Count Card */}
-              <div className="bg-[#12161f]/80 border border-white/10 rounded-2xl p-5 flex items-center justify-between shadow-xl">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Registered Squad</p>
-                  <p className="text-2xl font-black text-white mt-1">{squad.length} Players</p>
-                </div>
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                  <span className="material-symbols-outlined">groups</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Trophy Summary & Recent Transfers */}
-          <div className="space-y-6">
-            {/* Trophy Cabinet Highlights Card */}
-            <div 
-              onClick={() => setActiveTab('TROPHY CABINET')}
-              className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 hover:border-amber-500/40 rounded-3xl p-6 shadow-xl space-y-4 cursor-pointer transition-all group"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <TrophyImage src="/api/images/trophy/ucl" alt="Trophy" />
-                  <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">Trophy Cabinet</h3>
-                </div>
-                <span className="text-xs text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
-                  {totalHistoricalCount} Silverware
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                {historicalTrophies.slice(0, 4).map((t, idx) => (
-                  <div key={idx} className="bg-white/[0.03] border border-white/5 rounded-xl p-2.5 text-center flex flex-col items-center">
-                    <TrophyImage src={t.icon} alt={t.name} />
-                    <p className="text-lg font-black text-amber-400 mt-1">{t.count}x</p>
-                    <p className="text-[10px] text-slate-400 truncate w-full">{t.name}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Recent Transfers Summary */}
-            <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <span className="material-symbols-outlined text-emerald-400 text-lg">swap_horiz</span>
-                Recent Transfers ({transfers.length})
-              </h3>
-
-              {transfers.length === 0 ? (
-                <p className="text-xs text-slate-500 py-6 text-center italic">No transfer records logged for {clubName}.</p>
-              ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {transfers.slice(0, 5).map(t => (
-                    <div key={t.id} className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs">
-                      <div className="min-w-0 pr-2">
-                        <p className="font-bold text-white truncate">{t.player_name}</p>
-                        <p className="text-[10px] text-slate-400 truncate mt-0.5">
-                          {t.from_club_name || "Club"} → {t.to_club_name || "Club"}
-                        </p>
-                      </div>
-                      <span className="font-mono font-bold text-emerald-400 flex-shrink-0">
-                        {t.fee ? `€${(t.fee / 1000000).toFixed(1)}M` : "Free"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: TROPHY CABINET */}
-      {activeTab === 'TROPHY CABINET' && (
-        <div className="space-y-8">
-          {/* Header Banner for Silverware */}
-          <div className="relative rounded-3xl p-8 bg-gradient-to-r from-amber-950/40 via-[#161b22] to-slate-900 border border-amber-500/20 shadow-2xl overflow-hidden flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="space-y-2 text-center sm:text-left">
-              <span className="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold uppercase tracking-widest">
-                HALL OF CHAMPIONS
-              </span>
-              <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-                {clubName} Trophy Cabinet
-              </h2>
-              <p className="text-slate-400 text-sm max-w-xl">
-                All-time historical silverware and honours won by {clubName} both historically and in your FC Universe save.
-              </p>
-            </div>
-            
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-center min-w-[140px] flex flex-col items-center">
-              <TrophyImage src="/api/images/trophy/ucl" alt="Trophy" />
-              <p className="text-3xl font-black text-amber-400 mt-1">{totalHistoricalCount}</p>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Trophies</p>
-            </div>
-          </div>
-
-          {/* In-Universe Trophies Section */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              <span className="material-symbols-outlined text-emerald-400 text-xl">auto_awesome</span>
-              In-Universe Honors (Current Career Save)
-            </h3>
-            {universeTrophies.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {universeTrophies.map((t, idx) => (
-                  <div key={idx} className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <TrophyImage src={t.icon} alt={t.name} />
-                      <div>
-                        <p className="text-base font-bold text-white">{t.name}</p>
-                        <p className="text-xs text-emerald-400 font-medium mt-0.5">{t.category}</p>
-                      </div>
-                    </div>
-                    <span className="text-3xl font-black text-emerald-400">{t.count}x</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5 text-slate-400 text-xs italic flex items-center gap-3">
-                <span className="material-symbols-outlined text-slate-500">emoji_events</span>
-                <span>No trophies won in this career save yet for {clubName}. Win league titles or cups in-game to populate your career silverware!</span>
-              </div>
-            )}
-          </div>
-
-          {/* All-Time Historical Silverware */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              <TrophyImage src="/api/images/trophy/pl" alt="Silverware" />
-              All-Time Historical Silverware
-            </h3>
-
-            {historicalTrophies.length === 0 ? (
-              <p className="text-slate-500 text-sm italic">No historical trophy records found.</p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {historicalTrophies.map((t, idx) => (
-                  <div 
-                    key={idx}
-                    className="bg-[#12161f]/80 border border-white/10 hover:border-amber-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow-xl transition-all hover:-translate-y-1 group"
-                  >
-                    <div className="flex items-center justify-between">
-                      <TrophyImage src={t.icon} alt={t.name} />
-                      <span className="text-2xl font-black text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-xl">
-                        {t.count}x
-                      </span>
-                    </div>
-
-                    <div>
-                      <h4 className="text-base font-bold text-white group-hover:text-amber-400 transition-colors">
-                        {t.name}
-                      </h4>
-                      <p className="text-xs text-slate-400 mt-0.5">{t.category}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: CURRENT SQUAD */}
-      {activeTab === 'CURRENT SQUAD' && (
-        <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-bold text-white">Current Squad Roster ({squad.length})</h3>
-          </div>
-
-          {squad.length === 0 ? (
-            <p className="text-sm text-slate-500 py-12 text-center italic">No players registered for {clubName} in the current database snapshot.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {squad.map(player => (
-                <div 
-                  key={player.id}
-                  onClick={() => navigate(`/players/${player.id}`)}
-                  className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-emerald-500/40 flex items-center justify-between cursor-pointer transition-all hover:bg-white/[0.06] group"
-                >
-                  <div className="flex items-center gap-3 min-w-0 pr-2">
-                    <div className="w-12 h-12 rounded-xl bg-slate-800 border border-white/10 overflow-hidden flex items-center justify-center flex-shrink-0">
-                      <img 
-                        src={getPlayerPhotoUrl(player.game_id)} 
-                        alt={player.known_name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => { e.target.style.display = 'none'; }}
-                      />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-white truncate group-hover:text-emerald-400 transition-colors">
-                        {player.known_name || `${player.first_name} ${player.last_name}`}
-                      </p>
-                      <p className="text-xs text-slate-400 truncate mt-0.5">
-                        {player.position || "MF"} • Age {player.age || (player.birth_year ? (2026 - player.birth_year) : 24)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <span className="text-base font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20 flex-shrink-0">
-                    {player.overall || 80}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* TAB 4: TRANSFERS */}
-      {activeTab === 'TRANSFERS' && (
-        <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
-          <h3 className="text-xl font-bold text-white">Transfer Logs ({transfers.length})</h3>
-          {transfers.length === 0 ? (
-            <p className="text-sm text-slate-500 py-12 text-center italic">No transfer records found for {clubName}.</p>
-          ) : (
-            <div className="space-y-3">
-              {transfers.map(t => (
-                <div key={t.id} className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs">
-                  <div>
-                    <p className="font-bold text-white text-sm">{t.player_name}</p>
-                    <p className="text-slate-400 mt-0.5">
-                      {t.from_club_name || "Club"} → {t.to_club_name || "Club"}
-                    </p>
-                  </div>
-                  <span className="font-mono font-bold text-emerald-400 text-sm">
-                    {t.fee ? `€${(t.fee / 1000000).toFixed(1)}M` : "Free Transfer"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* TAB 5: STATISTICS */}
-      {activeTab === 'STATISTICS' && (
-        <div className="bg-[#12161f]/80 border border-white/10 rounded-3xl p-8 shadow-xl space-y-6">
-          <h3 className="text-xl font-bold text-white">Squad Statistics Breakdown</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-            <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
-              <p className="text-[10px] font-bold text-slate-500 uppercase">Average Squad OVR</p>
-              <p className="text-2xl font-black text-emerald-400 mt-1">{avgOverall}</p>
-            </div>
-            <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
-              <p className="text-[10px] font-bold text-slate-500 uppercase">Total Squad Size</p>
-              <p className="text-2xl font-black text-white mt-1">{squad.length}</p>
-            </div>
-            <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
-              <p className="text-[10px] font-bold text-slate-500 uppercase">Total Transfers</p>
-              <p className="text-2xl font-black text-amber-400 mt-1">{transfers.length}</p>
-            </div>
-            <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
-              <p className="text-[10px] font-bold text-slate-500 uppercase">Domestic Prestige</p>
-              <p className="text-2xl font-black text-white mt-1">{club?.domestic_prestige || 10}/10</p>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  const { career } = useOutletContext()
+  const { id } = useParams()
+  const state = useApi(career ? `/careers/${career.id}/clubs/${id}` : null)
+  if (!career) return <EmptyState icon="public" title="No universe selected" />
+  return <Async state={state} loadingLabel="Opening the club">{(club) => <Club club={club} careerId={career.id} />}</Async>
 }

@@ -1,243 +1,242 @@
-import React, { useState, useEffect } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { apiGet, qs, unwrap, useApi } from './lib/api'
+import { ThemeScope, Ticker } from './components/broadcast'
+import { ClubCrest } from './components/media'
+import { Icon, Loader } from './components/ui'
+import ErrorBoundary from './components/ErrorBoundary'
 
-export default function Layout() {
-  const [careers, setCareers] = useState([]);
-  const [career, setCareer] = useState(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const [importMessage, setImportMessage] = useState("");
-  const [initialLoading, setInitialLoading] = useState(true);
+const NAV = [
+  { to: '/', label: 'Universes', icon: 'public', end: true },
+  { to: '/career', label: 'Legacy', icon: 'military_tech' },
+  { to: '/players', label: 'Players', icon: 'directions_run' },
+  { to: '/clubs', label: 'Clubs', icon: 'shield' },
+  { to: '/transfers', label: 'Transfers', icon: 'swap_horiz' },
+  { to: '/timeline', label: 'Timeline', icon: 'history' },
+]
 
-  const fetchCareers = (selectId = null) => {
-    fetch('/api/careers')
-      .then(res => res.json())
-      .then(json => {
-        if (json.success && json.data) {
-          setCareers(json.data);
-          
-          // Determine which career to make active
-          const savedId = selectId || localStorage.getItem("active_career_id");
-          let active = null;
-          
-          if (savedId) {
-            active = json.data.find(c => String(c.id) === String(savedId));
-          }
-          
-          if (!active && json.data.length > 0) {
-            active = json.data[0];
-          }
-          
-          if (active) {
-            setCareer(active);
-            localStorage.setItem("active_career_id", active.id);
-          } else {
-            setCareer(null);
-          }
-        }
-        setInitialLoading(false);
-      })
-      .catch(err => {
-        console.error("Failed to fetch careers:", err);
-        setInitialLoading(false);
-      });
-  };
+function readStoredCareerId() {
+  try {
+    return localStorage.getItem('active_career_id')
+  } catch {
+    return null
+  }
+}
+
+function storeCareerId(id) {
+  try {
+    localStorage.setItem('active_career_id', id)
+  } catch {
+    // storage unavailable (private mode) — selection just won't persist
+  }
+}
+
+function Scoreboard({ career, summary }) {
+  const rec = summary?.record
+  return (
+    <div className="flex min-w-0 items-stretch overflow-hidden rounded-lg ring-1 ring-white/15">
+      <div className="flex items-center gap-2 bg-club-1 px-3 text-club-ink">
+        <ClubCrest club={career.team} gameId={career.team_id} name={career.team_name} className="h-7 w-7" />
+        <span className="hidden truncate font-head text-lg font-black uppercase italic sm:inline">{career.team_name}</span>
+      </div>
+      <div className="flex items-center gap-3 bg-black/70 px-3 font-display text-lg tabular-nums">
+        <span className="text-chalk-dim">{career.current_season}</span>
+        {rec && (
+          <span className="hidden items-center gap-1 md:flex" title="Current season record (all competitions)">
+            <span className="text-pitch">{rec.wins}W</span>
+            <span className="text-flood">{rec.draws}D</span>
+            <span className="text-derby">{rec.losses}L</span>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CareerSwitcher({ careers, career, onSelect }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
 
   useEffect(() => {
-    fetchCareers();
-  }, []);
-
-  const handleSelectCareer = (selected) => {
-    setCareer(selected);
-    localStorage.setItem("active_career_id", selected.id);
-    setDropdownOpen(false);
-  };
-
-  // Helper to trigger career refresh from children (like when importing)
-  const refreshCareers = (selectId = null) => {
-    fetchCareers(selectId);
-  };
-
-  if (initialLoading) {
-    return (
-      <div className="fixed inset-0 z-[200] bg-surface flex flex-col items-center justify-center p-6 select-none overflow-hidden">
-        <div className="ambient-blur-emerald"></div>
-        <div className="ambient-blur-blue"></div>
-        
-        <div className="relative flex flex-col items-center text-center space-y-6 max-w-sm">
-          {/* Animated Glow Logo Icon */}
-          <div className="relative w-20 h-20 flex items-center justify-center">
-            <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping"></div>
-            <div className="w-20 h-20 rounded-full bg-surface-container border border-primary/30 shadow-[0_0_40px_rgba(78,222,163,0.3)] flex items-center justify-center backdrop-blur-xl">
-              <span className="material-symbols-outlined text-primary text-4xl animate-pulse">sports_soccer</span>
-            </div>
-          </div>
-
-          <div>
-            <h1 className="text-headline-lg font-headline-lg font-black tracking-tighter text-primary drop-shadow-[0_0_20px_rgba(78,222,163,0.4)]">
-              FC UNIVERSE
-            </h1>
-            <p className="text-body-md text-on-surface-variant mt-1.5 font-medium">Initializing Career Mode Engine...</p>
-          </div>
-
-          {/* Sleek Loading Bar */}
-          <div className="w-64 h-1.5 bg-surface-container rounded-full overflow-hidden border border-white/10 relative">
-            <div className="h-full bg-gradient-to-r from-primary via-tertiary to-primary w-full animate-pulse shadow-[0_0_15px_rgba(78,222,163,0.8)]"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+    if (!open) return
+    const onDoc = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
 
   return (
-    <>
-      <div className="ambient-blur-emerald"></div>
-      <div className="ambient-blur-blue"></div>
-
-      {/* Global Top Loading Bar during Save Sync / Import operations */}
-      {isImporting && (
-        <div className="fixed top-0 left-0 right-0 z-[100] h-1.5 bg-surface-container overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-primary via-tertiary to-primary w-full animate-pulse shadow-[0_0_12px_rgba(78,222,163,0.8)]"></div>
-        </div>
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 rounded-lg bg-night-700 px-3 py-2 font-head text-sm font-bold uppercase ring-1 ring-white/10 hover:bg-night-600"
+      >
+        <Icon name="swap_vert" className="text-lg text-flood" />
+        <span className="hidden sm:inline">Switch</span>
+      </button>
+      {open && (
+        <ul role="listbox" aria-label="Choose career" className="absolute right-0 z-50 mt-2 w-72 overflow-hidden rounded-xl border-2 border-flood bg-night-800 shadow-2xl">
+          <li className="hazard h-2" aria-hidden="true" />
+          {careers.map((c) => (
+            <li key={c.id} role="option" aria-selected={c.id === career?.id}>
+              <button
+                type="button"
+                onClick={() => { onSelect(c); setOpen(false) }}
+                className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-white/5 ${c.id === career?.id ? 'bg-white/10' : ''}`}
+              >
+                <ClubCrest club={c.team} gameId={c.team_id} name={c.team_name} className="h-8 w-8" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-head text-lg font-extrabold uppercase italic leading-tight">{c.name}</span>
+                  <span className="block truncate text-xs text-chalk-dim">{c.manager_name} · {c.team_name}</span>
+                </span>
+                {c.id === career?.id && <Icon name="check_circle" fill className="text-pitch" />}
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
+    </div>
+  )
+}
 
-      <nav className="hidden md:flex bg-surface-container/40 dark:bg-surface-container/40 backdrop-blur-2xl border-r border-white/10 shadow-xl fixed left-0 top-0 h-screen flex-col pt-24 pb-8 z-40 w-72 transition-all duration-300 ease-in-out">
-        <div className="px-6 mb-8">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded-full overflow-hidden border border-white/20 shadow-lg bg-surface-container flex items-center justify-center p-0.5">
-               {career && career.team_id ? (
-                 <img alt="Team Logo" className="w-full h-full object-contain drop-shadow-md" src={`/api/images/club/${career.team_id}?v=2`} onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
-               ) : null}
-               <span className="material-symbols-outlined text-on-surface-variant text-2xl" style={{ display: (career && career.team_id) ? 'none' : 'block' }}>shield</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-headline-md font-headline-md text-primary tracking-tight truncate">{career ? career.team_name : 'No Active Club'}</h2>
-              <p className="text-label-caps font-label-caps text-on-surface-variant truncate">{career ? career.manager_name : 'Select a Career'}</p>
-            </div>
-          </div>
-        </div>
+export default function Layout() {
+  const [careers, setCareers] = useState(null)
+  const [career, setCareer] = useState(null)
+  const [loadError, setLoadError] = useState(null)
+  const [importing, setImporting] = useState(null)
+  const [summaryVersion, setSummaryVersion] = useState(0)
+  const location = useLocation()
 
-        <div className="flex-1 overflow-y-auto px-4 space-y-1">
-          <NavLink to="/career" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
-            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">military_tech</span>
-            <span className="text-label-caps font-label-caps tracking-wider">Legacy Hub</span>
-          </NavLink>
+  const refreshCareers = useCallback((selectId = null) => {
+    return apiGet('/careers')
+      .then((body) => {
+        const list = body.data || []
+        setCareers(list)
+        const wanted = selectId ?? readStoredCareerId()
+        const active = list.find((c) => String(c.id) === String(wanted)) || list[0] || null
+        setCareer(active)
+        if (active) storeCareerId(active.id)
+        setSummaryVersion((v) => v + 1)
+        setLoadError(null)
+      })
+      .catch(setLoadError)
+  }, [])
 
-          <NavLink to="/" end className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
-            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">public</span>
-            <span className="text-label-caps font-label-caps tracking-wider">Universes</span>
-          </NavLink>
+  useEffect(() => { refreshCareers() }, [refreshCareers])
 
-          <NavLink to="/players" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
-            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">groups</span>
-            <span className="text-label-caps font-label-caps tracking-wider">Players</span>
-          </NavLink>
-          <NavLink to="/clubs" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
-            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">shield</span>
-            <span className="text-label-caps font-label-caps tracking-wider">Clubs</span>
-          </NavLink>
-          <NavLink to="/transfers" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
-            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">swap_horiz</span>
-            <span className="text-label-caps font-label-caps tracking-wider">Transfers</span>
-          </NavLink>
-          <NavLink to="/timeline" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
-            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">auto_stories</span>
-            <span className="text-label-caps font-label-caps tracking-wider">Timeline</span>
-          </NavLink>
-          <NavLink to="/analytics" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg group transition-all duration-200 ${isActive ? 'text-on-primary-container bg-primary-container/20 border-r-2 border-primary' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 hover:bg-white/5'}`}>
-            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">analytics</span>
-            <span className="text-label-caps font-label-caps tracking-wider">Analytics</span>
-          </NavLink>
-        </div>
-      </nav>
+  const selectCareer = (c) => {
+    setCareer(c)
+    storeCareerId(c.id)
+  }
 
-      <header className="bg-surface/60 dark:bg-surface/60 backdrop-blur-xl border-b border-white/10 dark:border-white/5 shadow-2xl fixed top-0 w-full z-50 flex justify-between items-center px-container-padding h-20 transition-colors">
-        <div className="flex items-center gap-4 md:ml-72">
-          <a className="text-headline-md font-headline-md font-black tracking-tighter text-primary dark:text-primary hover:text-white/5 dark:hover:text-white/10 transition-colors" href="#">
-              FC UNIVERSE
-          </a>
-          {isImporting && (
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold animate-pulse">
-              <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
-              {importMessage || "Syncing save data in background..."}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="hidden md:flex relative group mr-4">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
-            <input 
-              className="bg-surface-container/50 border border-white/10 rounded-full py-2 pl-10 pr-4 text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary/50 focus:bg-surface-container w-64 transition-all focus:w-80" 
-              placeholder="Search the universe..." 
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
+  const summary = useApi(career ? `/careers/${career.id}/summary?v=${summaryVersion}` : null, { select: unwrap })
+  const headlines = useApi(career ? `/careers/${career.id}/timeline${qs({ limit: 12, event_type: ['trophy', 'transfer', 'award', 'season_review', 'manager_move'] })}&v=${summaryVersion}` : null)
 
-          {/* Active Career Selector Dropdown */}
-          <div className="relative">
-            <button 
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center gap-3 px-4 py-2 rounded-xl bg-surface-container-high/60 border border-white/10 hover:border-primary/30 transition-all backdrop-blur-md"
-            >
-              <span className="material-symbols-outlined text-primary text-lg">work_history</span>
-              <div className="text-left hidden sm:block">
-                <p className="text-xs text-on-surface-variant leading-none">Active Universe</p>
-                <p className="text-sm font-bold text-on-surface mt-0.5">{career ? career.name : "Select Career"}</p>
-              </div>
-              <span className="material-symbols-outlined text-on-surface-variant text-sm transition-transform duration-200" style={{ transform: dropdownOpen ? 'rotate(180deg)' : 'none' }}>
-                keyboard_arrow_down
-              </span>
-            </button>
-
-            {dropdownOpen && (
-              <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-surface-container-highest border border-white/10 shadow-2xl p-2 z-50 animate-fade-in backdrop-blur-3xl">
-                <p className="text-[10px] font-bold text-on-surface-variant/60 tracking-wider uppercase px-3 py-1">Select active universe</p>
-                <div className="space-y-1 max-h-80 overflow-y-auto mt-1">
-                  {careers.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => handleSelectCareer(c)}
-                      className={`w-full text-left px-3 py-2.5 rounded-xl transition-all duration-200 flex items-center justify-between ${
-                        career && career.id === c.id 
-                          ? 'bg-primary text-on-primary font-bold shadow-lg' 
-                          : 'hover:bg-white/5 text-on-surface'
-                      }`}
-                    >
-                      <div className="min-w-0 pr-2">
-                        <p className="text-body-md font-bold truncate leading-snug">{c.name}</p>
-                        <p className={`text-[10px] truncate ${career && career.id === c.id ? 'text-on-primary/80' : 'text-on-surface-variant'}`}>{c.manager_name} • {c.team_name}</p>
-                      </div>
-                      {career && career.id === c.id && (
-                        <span className="material-symbols-outlined text-sm">check_circle</span>
-                      )}
-                    </button>
-                  ))}
-                  {careers.length === 0 && (
-                    <p className="text-xs text-on-surface-variant px-3 py-4 text-center">No universes imported.</p>
-                  )}
-                </div>
-                <div className="border-t border-white/10 pt-1.5 mt-1 px-1">
-                  <NavLink 
-                    to="/careers" 
-                    onClick={() => setDropdownOpen(false)}
-                    className="w-full text-center py-2 rounded-xl bg-white/5 hover:bg-primary/20 hover:text-primary text-xs font-bold text-on-surface transition-all flex items-center justify-center gap-1.5"
-                  >
-                    <span className="material-symbols-outlined text-sm">public</span>
-                    Manage Universes
-                  </NavLink>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <div className="pt-28 pb-12 px-container-padding md:ml-72 relative z-10 max-w-max-width-desktop mx-auto">
-        <Outlet context={{ career, searchQuery, refreshCareers, setIsImporting, setImportMessage, isImporting }} />
+  if (!careers && !loadError) {
+    return (
+      <div className="stripes-loud flex min-h-screen items-center justify-center">
+        <div className="panel px-10 py-6"><Loader label="Floodlights on" /></div>
       </div>
-    </>
-  );
+    )
+  }
+
+  const tickerItems = (headlines.data || []).map((e) => e.description)
+
+  return (
+    <ThemeScope club={career?.team} className="min-h-screen">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded focus:bg-flood focus:px-4 focus:py-2 focus:text-night">Skip to content</a>
+
+      {/* Left rail */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-white/10 bg-night-800/95 lg:flex">
+        <div className="stripes h-2 shrink-0" aria-hidden="true" />
+        <NavLink to="/" className="flex items-center gap-3 px-5 py-5">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-chalk text-night shadow-[0_0_0_4px_rgb(var(--club-1))]">
+            <Icon name="sports_soccer" fill className="text-3xl" />
+          </span>
+          <span className="font-display text-2xl uppercase leading-none">FC<br /><span className="text-club-1">Universe</span></span>
+        </NavLink>
+
+        <nav aria-label="Main" className="flex flex-1 flex-col gap-1 px-3">
+          {NAV.map((n) => (
+            <NavLink
+              key={n.to}
+              to={n.to}
+              end={n.end}
+              className={({ isActive }) =>
+                `group relative flex items-center gap-3 overflow-hidden rounded-lg px-4 py-3 font-head text-lg font-extrabold uppercase italic transition ${
+                  isActive ? 'bg-club-1 text-club-ink shadow-lg' : 'text-chalk-dim hover:bg-white/5 hover:text-chalk'
+                }`
+              }
+            >
+              <Icon name={n.icon} className="text-2xl" />
+              {n.label}
+            </NavLink>
+          ))}
+        </nav>
+
+        {career && (
+          <div className="m-3 overflow-hidden rounded-xl border border-white/10">
+            <div className="stripes h-16 opacity-90" aria-hidden="true" />
+            <div className="-mt-8 flex flex-col items-center bg-night-800 px-4 pb-4">
+              <ClubCrest club={career.team} gameId={career.team_id} name={career.team_name} className="-mt-2 h-16 w-16" />
+              <div className="mt-2 text-center font-head text-xl font-black uppercase italic leading-tight">{career.team_name}</div>
+              <div className="label mt-1 text-center">Gaffer · {career.manager_name}</div>
+            </div>
+          </div>
+        )}
+      </aside>
+
+      <div className="lg:pl-64">
+        {/* Top bar */}
+        <header className="sticky top-0 z-20 border-b border-white/10 bg-night/90 backdrop-blur">
+          <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
+            <NavLink to="/" className="flex items-center gap-2 lg:hidden" aria-label="FC Universe home">
+              <Icon name="sports_soccer" fill className="text-3xl text-club-1" />
+            </NavLink>
+            {career ? <Scoreboard career={career} summary={summary.data} /> : <span className="font-head text-xl font-black uppercase italic">No universe yet</span>}
+            <div className="ml-auto flex items-center gap-2">
+              {importing && (
+                <span className="hidden items-center gap-2 rounded-lg bg-flood px-3 py-2 font-head text-sm font-black uppercase text-night md:flex" role="status">
+                  <Icon name="sync" className="animate-spin text-lg" /> {importing}
+                </span>
+              )}
+              {careers?.length > 0 && <CareerSwitcher careers={careers} career={career} onSelect={selectCareer} />}
+            </div>
+          </div>
+          {importing && <div className="h-1 overflow-hidden bg-night-700"><div className="h-full w-1/3 animate-sweep bg-flood" /></div>}
+          <Ticker items={tickerItems} />
+        </header>
+
+        <main id="main" className="mx-auto max-w-[1440px] px-4 pb-28 pt-6 sm:px-6 lg:pb-12">
+          {loadError && <div className="mb-6 rounded-lg bg-derby px-4 py-3 font-semibold">Couldn’t reach the backend: {loadError.message}</div>}
+          {/* keyed by route so navigating away from a crashed screen recovers */}
+          <ErrorBoundary key={location.pathname}>
+            <Outlet context={{ career, careers: careers || [], refreshCareers, selectCareer, setImporting, importing }} />
+          </ErrorBoundary>
+        </main>
+      </div>
+
+      {/* Mobile bottom tab bar */}
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t-2 border-club-1 bg-night-800/95 backdrop-blur lg:hidden">
+        {NAV.map((n) => (
+          <NavLink
+            key={n.to}
+            to={n.to}
+            end={n.end}
+            className={({ isActive }) => `flex flex-col items-center gap-0.5 py-2 font-head text-[0.7rem] font-bold uppercase ${isActive ? 'bg-club-1 text-club-ink' : 'text-chalk-dim'}`}
+          >
+            <Icon name={n.icon} className="text-2xl" />
+            {n.label}
+          </NavLink>
+        ))}
+      </nav>
+    </ThemeScope>
+  )
 }

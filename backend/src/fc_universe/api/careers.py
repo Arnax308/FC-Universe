@@ -1,106 +1,105 @@
 from datetime import datetime
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from fc_universe.api.common import club_brief, season_label, user_club
 from fc_universe.config import settings
 from fc_universe.database import get_db
-from fc_universe.models import Career
+from fc_universe.models import (
+    Career, Club, ManagerSeasonHistory, Player, Season, TimelineEvent, Transfer,
+)
 from fc_universe.schemas.common import APIResponse
 from fc_universe.schemas.career import CareerOut
 from fc_universe.parser.fbchunks import FbChunksParser, apply_team_offset_overrides
 from fc_universe.services.import_service import ImportService
-from fc_universe.repositories.career_repo import CareerRepository
 
 router = APIRouter(tags=["careers"])
 
 
+def _managed_club_ids(db: Session, career: Career) -> list[int]:
+    """Database ids of every club this career's manager has coached."""
+    game_ids = {
+        gid for (gid,) in db.query(ManagerSeasonHistory.club_game_id)
+        .filter(ManagerSeasonHistory.career_id == career.id)
+    }
+    if career.team_id is not None:
+        game_ids.add(career.team_id)
+    if not game_ids:
+        return []
+    return [cid for (cid,) in db.query(Club.id).filter(Club.career_id == career.id, Club.game_id.in_(game_ids))]
+
+
+def _career_out(db: Session, career: Career) -> dict:
+    years = [y for (y,) in db.query(Season.year).filter(Season.career_id == career.id)]
+    start, end = (min(years), max(years)) if years else (None, None)
+    club_ids = _managed_club_ids(db, career)
+    trophies = db.query(func.count(TimelineEvent.id)).filter(
+        TimelineEvent.career_id == career.id,
+        TimelineEvent.event_type == "trophy",
+        TimelineEvent.related_club_id.in_(club_ids),
+    ).scalar() if club_ids else 0
+    seasons = (end - start + 1) if years else 0
+    return {
+        "id": career.id,
+        "name": career.name,
+        "save_identifier": career.save_identifier,
+        "game_version": career.game_version,
+        "manager_name": career.manager_name,
+        "team_name": career.team_name,
+        "team_id": career.team_id,
+        "save_file_path": career.save_file_path,
+        "created_at": career.created_at,
+        "updated_at": career.updated_at,
+        "current_season": season_label(end),
+        "start_season": season_label(start),
+        "seasons_count": seasons,
+        "duration_years": f"{seasons} Season{'s' if seasons != 1 else ''}" if seasons else None,
+        "trophies_count": trophies,
+        "team": club_brief(user_club(db, career)),
+    }
+
+
 @router.get("/careers", response_model=APIResponse[list[CareerOut]])
 def list_careers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """List all imported careers with rich metadata for universe selection."""
-    repo = CareerRepository(db)
-    careers = repo.get_all(skip=skip, limit=limit)
-    
-    res = []
-    for idx, c in enumerate(careers):
-        seasons = c.seasons or []
-        season_years = [s.year for s in seasons if s.year]
-        if season_years:
-            start_yr = min(season_years)
-            max_yr = max(season_years)
-            current_season_str = f"{max_yr}/{(max_yr+1)%100:02d}"
-            dur_num = max(1, max_yr - start_yr + 1)
-            duration_str = f"{dur_num} Year" + ("s" if dur_num > 1 else "")
-        else:
-            current_season_str = "2025/26"
-            duration_str = "1 Year"
-
-        awards = c.awards or []
-        trophies_count = len(awards)
-        
-        honours = []
-        if trophies_count > 0:
-            honours.append({"icon": "🏆", "count": trophies_count})
-
-        c_dict = {
-            "id": c.id,
-            "name": c.name,
-            "save_identifier": c.save_identifier,
-            "game_version": c.game_version,
-            "manager_name": c.manager_name,
-            "team_name": c.team_name,
-            "team_id": c.team_id,
-            "save_file_path": c.save_file_path,
-            "created_at": c.created_at,
-            "updated_at": c.updated_at,
-            "current_season": current_season_str,
-            "duration_years": duration_str,
-            "trophies_count": trophies_count,
-            "trophies_summary": honours,
-            "is_last_played": idx == 0
-        }
-        res.append(c_dict)
-
-    return {"success": True, "data": res}
+    """List all imported careers, most recently imported first."""
+    careers = db.query(Career).order_by(Career.updated_at.desc()).offset(skip).limit(limit).all()
+    data = [_career_out(db, c) for c in careers]
+    if data:
+        data[0]["is_last_played"] = True
+    return {"success": True, "data": data}
 
 
 @router.get("/careers/local-saves")
 def list_local_saves(db: Session = Depends(get_db)):
-    """Scan EA FC save folder and list candidate saves."""
-    import hashlib
-    
+    """Scan the EA FC save folder and list career saves."""
     save_dir = settings.save_directory
     if not save_dir.exists():
         return {"success": True, "data": []}
-        
+
+    imported_ids = {sid for (sid,) in db.query(Career.save_identifier)}
     parser = FbChunksParser()
     saves = []
     for file in save_dir.glob("CmMgrC*"):
         try:
             stat = file.stat()
-            # Generate MD5 hash of filename stem to get expected save identifier
-            save_id = hashlib.md5(file.stem.encode()).hexdigest()
-            
-            # Read quick header information from save file (instant <1ms read)
-            header_info = parser.read_header(file)
-            
-            # Check if already imported
-            imported = db.query(Career).filter(Career.save_identifier == save_id).first() is not None
-            
+            header = parser.read_header(file)
             saves.append({
                 "filename": file.name,
                 "path": str(file),
                 "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 "size_kb": round(stat.st_size / 1024, 1),
-                "imported": imported,
-                "save_identifier": save_id,
-                "name": header_info.career_name,
-                "manager_name": header_info.manager_name,
-                "team_name": header_info.team_name,
+                "imported": header.save_identifier in imported_ids,
+                "save_identifier": header.save_identifier,
+                "name": header.career_name,
+                "manager_name": header.manager_name,
+                "team_name": header.team_name,
             })
         except Exception:
             continue
-            
+
     saves.sort(key=lambda s: s["modified_at"], reverse=True)
     return {"success": True, "data": saves}
 
@@ -108,45 +107,61 @@ def list_local_saves(db: Session = Depends(get_db)):
 @router.get("/careers/{career_id}", response_model=APIResponse[CareerOut])
 def get_career(career_id: int, db: Session = Depends(get_db)):
     """Get a specific career by ID."""
-    repo = CareerRepository(db)
-    career = repo.get_by_id(career_id)
+    career = db.get(Career, career_id)
     if not career:
         raise HTTPException(status_code=404, detail="Career not found")
-    return {"success": True, "data": career}
+    return {"success": True, "data": _career_out(db, career)}
+
+
+@router.get("/careers/{career_id}/summary")
+def get_career_summary(career_id: int, db: Session = Depends(get_db)):
+    """Headline counts and the user's current-season record, for dashboards and the scoreboard."""
+    career = db.get(Career, career_id)
+    if not career:
+        raise HTTPException(status_code=404, detail="Career not found")
+    current = (
+        db.query(ManagerSeasonHistory)
+        .filter(ManagerSeasonHistory.career_id == career_id, ManagerSeasonHistory.club_game_id == career.team_id)
+        .order_by(ManagerSeasonHistory.season_number.desc())
+        .first()
+    )
+    return {
+        "success": True,
+        "data": {
+            **_career_out(db, career),
+            "clubs": db.query(func.count(Club.id)).filter(Club.career_id == career_id).scalar(),
+            "players": db.query(func.count(Player.id)).filter(
+                Player.career_id == career_id, Player.is_retired.isnot(True)).scalar(),
+            "transfers": db.query(func.count(Transfer.id)).filter(Transfer.career_id == career_id).scalar(),
+            "events": db.query(func.count(TimelineEvent.id)).filter(TimelineEvent.career_id == career_id).scalar(),
+            "record": {
+                "played": current.matches, "wins": current.wins, "draws": current.draws,
+                "losses": current.losses, "goals_for": current.goals_for,
+                "goals_against": current.goals_against, "points": current.points,
+            } if current else None,
+        },
+    }
 
 
 @router.post("/import")
 def import_save_file(file_path: str, team_offset: int | None = None, db: Session = Depends(get_db)):
-    """Parse and import an EA FC save file.
-    
-    In a real app, you might accept an uploaded file or just a path.
-    Since this is a local app, a file path works well.
-    """
-    path = Path(file_path)
-    if not path.exists():
+    """Parse and import an EA FC save file from the configured save folder."""
+    path = Path(file_path).resolve()
+    if not path.is_relative_to(settings.save_directory.resolve()):
+        raise HTTPException(status_code=400, detail=f"Saves must live in {settings.save_directory}")
+    if not path.is_file():
         raise HTTPException(status_code=400, detail=f"File not found: {file_path}")
 
     try:
         if team_offset is not None:
             apply_team_offset_overrides(team_offset)
-            from fc_universe.config import settings
             settings.team_id_offset = team_offset
-
-        # Parse the binary save file
-        parser = FbChunksParser()
-        parsed_data = parser.parse(path)
-
-        # Import the parsed data into the database
-        import_service = ImportService(db)
-        career = import_service.import_save(parsed_data)
-
+        parsed_data = FbChunksParser().parse(path)
+        career = ImportService(db).import_save(parsed_data)
         return {
             "success": True,
             "message": "Import successful",
-            "data": {
-                "career_id": career.id,
-                "name": career.name
-            }
+            "data": {"career_id": career.id, "name": career.name},
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Import failed: {e}")

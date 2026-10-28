@@ -2,8 +2,111 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ------------------------------------------------------------------ tokens
+   Values are "r g b" triplets so Tailwind can apply opacity (bg-pitch/20).
+   --club-* are overwritten at runtime by <ThemeScope> with real kit colours. */
+:root {
+  --night: 7 11 31;
+  --night-800: 13 19 48;
+  --night-700: 22 30 68;
+  --night-600: 34 45 94;
+  --chalk: 248 249 255;
+  --chalk-dim: 178 186 222;
+
+  --pitch: 0 200 83;
+  --flood: 255 230 0;
+  --derby: 255 23 68;
+  --cyan: 0 229 255;
+  --violet: 124 77 255;
+  --tangerine: 255 109 0;
+  --pink: 255 64 160;
+
+  --pos-gk: 255 179 0;
+  --pos-def: 41 121 255;
+  --pos-mid: 0 200 83;
+  --pos-att: 255 23 68;
+
+  --club-1: 0 200 83;
+  --club-2: 255 230 0;
+  --club-3: 124 77 255;
+  --club-ink: 7 11 31;
+
+  color-scheme: dark;
+}
+
 @layer base {
+  html { background: rgb(var(--night)); }
   body {
-    @apply bg-background text-on-background antialiased font-sans;
+    @apply bg-night text-chalk antialiased font-sans;
+    min-height: 100vh;
+    /* Floodlights over a night match */
+    background-image:
+      radial-gradient(60rem 30rem at 10% -10%, rgb(var(--club-1) / .22), transparent 60%),
+      radial-gradient(50rem 28rem at 100% 0%, rgb(var(--violet) / .22), transparent 60%),
+      radial-gradient(40rem 30rem at 50% 120%, rgb(var(--pitch) / .14), transparent 60%);
+    background-attachment: fixed;
+  }
+  h1, h2, h3 { @apply font-head font-extrabold uppercase italic tracking-tight; }
+  ::selection { background: rgb(var(--flood)); color: rgb(var(--night)); }
+  :focus-visible { outline: 3px solid rgb(var(--flood)); outline-offset: 2px; }
+  img { color: transparent; }
+}
+
+@layer components {
+  /* Solid broadcast panel: busy backgrounds behind, always readable text on top */
+  .panel {
+    @apply relative rounded-xl border border-white/10 bg-night-800/95 shadow-[0_10px_40px_-12px_rgb(0_0_0/.7)];
+  }
+  .panel-club {
+    @apply relative overflow-hidden rounded-xl border-2;
+    border-color: rgb(var(--club-1));
+    background: linear-gradient(135deg, rgb(var(--club-1) / .35), rgb(var(--night-800)) 55%);
+  }
+  /* Slanted TV-graphics plate; put content in .unskew */
+  .skew-plate { transform: skewX(-12deg); }
+  .skew-plate > .unskew { transform: skewX(12deg); }
+
+  .label { @apply font-head text-micro font-bold uppercase text-chalk-dim; }
+  .num { @apply font-display tabular-nums tracking-wide; }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-head text-sm font-bold uppercase leading-5 tracking-wide;
+  }
+}
+
+@layer utilities {
+  /* Kit stripes in club colours */
+  .stripes {
+    background-image: repeating-linear-gradient(115deg,
+      rgb(var(--club-1)) 0 22px, rgb(var(--club-2)) 22px 34px, rgb(var(--club-1)) 34px 56px, rgb(var(--club-3)) 56px 60px);
+  }
+  .stripes-loud {
+    background-image: repeating-linear-gradient(115deg,
+      rgb(var(--pitch)) 0 18px, rgb(var(--flood)) 18px 36px, rgb(var(--derby)) 36px 54px,
+      rgb(var(--cyan)) 54px 72px, rgb(var(--violet)) 72px 90px, rgb(var(--tangerine)) 90px 108px);
+  }
+  .hazard {
+    background-image: repeating-linear-gradient(135deg, rgb(var(--flood)) 0 14px, rgb(var(--night)) 14px 28px);
+  }
+  .halftone {
+    background-image: radial-gradient(rgb(255 255 255 / .16) 1.2px, transparent 1.4px);
+    background-size: 10px 10px;
+  }
+  /* Mown-grass bands */
+  .grass {
+    background-color: #0b7a3b;
+    background-image: repeating-linear-gradient(90deg, rgb(255 255 255 / .06) 0 9%, transparent 9% 18%);
+  }
+  .text-outline { -webkit-text-stroke: 2px rgb(var(--chalk)); color: transparent; }
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .mask-fade-r { mask-image: linear-gradient(90deg, #000 85%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }

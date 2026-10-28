@@ -17,6 +17,7 @@ class Award(Base):
     career_id: Mapped[int] = mapped_column(ForeignKey("careers.id"), nullable=False)
     season_id: Mapped[int | None] = mapped_column(ForeignKey("seasons.id"))
     player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"))
+    club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     type: Mapped[str | None] = mapped_column(String(50))  # individual, team
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -1,636 +1,252 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useOutletContext, Link } from 'react-router-dom';
+import { Link, useOutletContext, useParams } from 'react-router-dom'
+import { useApi } from './lib/api'
+import { formatFee, playerName, seasonLabel, statColor } from './lib/format'
+import { FutCard, LowerThird, PitchLines, ThemeScope } from './components/broadcast'
+import { ClubCrest, TrophyImage } from './components/media'
+import { Async, EmptyState, Flag, Icon, PositionChip, SectionBanner, StatBar } from './components/ui'
 
-export default function PlayerProfile() {
-  const { id } = useParams();
-  const { career } = useOutletContext();
-  const [player, setPlayer] = useState(null);
-  const [stats, setStats] = useState([]);
-  const [transfers, setTransfers] = useState([]);
-  const [awards, setAwards] = useState([]);
-  const [trophies, setTrophies] = useState([]);
-  const [timeline, setTimeline] = useState([]);
-  const [conversionPlans, setConversionPlans] = useState([]);
-  const [loading, setLoading] = useState(true);
+const GROUPS = [
+  { title: 'Pace', color: 'cyan', keys: [['acceleration', 'Acceleration'], ['sprint_speed', 'Sprint speed']] },
+  { title: 'Shooting', color: 'derby', keys: [['positioning', 'Positioning'], ['finishing', 'Finishing'], ['shot_power', 'Shot power'], ['long_shots', 'Long shots'], ['volleys', 'Volleys'], ['penalties', 'Penalties']] },
+  { title: 'Passing', color: 'pitch', keys: [['vision', 'Vision'], ['crossing', 'Crossing'], ['free_kick_accuracy', 'FK accuracy'], ['short_passing', 'Short passing'], ['long_passing', 'Long passing'], ['curve', 'Curve']] },
+  { title: 'Dribbling', color: 'flood', keys: [['agility', 'Agility'], ['balance', 'Balance'], ['reactions', 'Reactions'], ['ball_control', 'Ball control'], ['dribbling', 'Dribbling'], ['composure', 'Composure']] },
+  { title: 'Defending', color: 'violet', keys: [['interceptions', 'Interceptions'], ['heading_accuracy', 'Heading'], ['defensive_awareness', 'Def. awareness'], ['standing_tackle', 'Stand tackle'], ['sliding_tackle', 'Slide tackle']] },
+  { title: 'Physical', color: 'tangerine', keys: [['jumping', 'Jumping'], ['stamina', 'Stamina'], ['strength', 'Strength'], ['aggression', 'Aggression']] },
+]
+const GK_GROUP = { title: 'Goalkeeping', color: 'flood', keys: [['gk_diving', 'Diving'], ['gk_handling', 'Handling'], ['gk_kicking', 'Kicking'], ['gk_positioning', 'Positioning'], ['gk_reflexes', 'Reflexes']] }
 
-  useEffect(() => {
-    if (!career) return;
-    
-    setLoading(true);
-    fetch(`/api/careers/${career.id}/players/${id}/profile`)
-      .then(res => res.json())
-      .then(data => {
-        setPlayer(data.player);
-        setStats(data.stats || []);
-        setTransfers(data.transfers || []);
-        setAwards(data.awards || []);
-        setTrophies(data.trophies || []);
-        setTimeline(data.timeline || []);
-        setConversionPlans(data.conversion_plans || []);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching player profile:", err);
-        setLoading(false);
-      });
-  }, [career, id]);
+const avg = (p, keys) => {
+  const vals = keys.map(([k]) => p[k]).filter((v) => v !== null && v !== undefined)
+  return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0
+}
 
-  const getPlayerImageUrl = (gameId) => {
-    if (!gameId) return null;
-    return `/api/images/player/${gameId}?v=2`;
-  };
-
-  if (loading) {
-    return (
-      <div className="flex-1 flex justify-center items-center h-full min-h-[60vh]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-          <span className="text-on-surface-variant text-sm">Loading player profile...</span>
-        </div>
-      </div>
-    );
+function Radar({ player }) {
+  const axes = GROUPS.map((g) => ({ label: g.title.slice(0, 3).toUpperCase(), value: avg(player, g.keys) }))
+  const cx = 110, cy = 110, r = 84
+  const pt = (i, v) => {
+    const a = (Math.PI * 2 * i) / axes.length - Math.PI / 2
+    return [cx + Math.cos(a) * r * (v / 99), cy + Math.sin(a) * r * (v / 99)]
   }
+  const poly = axes.map((a, i) => pt(i, a.value).join(',')).join(' ')
+  return (
+    <svg viewBox="0 0 220 220" className="mx-auto w-full max-w-xs" role="img" aria-label={axes.map((a) => `${a.label} ${a.value}`).join(', ')}>
+      {[33, 66, 99].map((ring) => (
+        <polygon key={ring} points={axes.map((_, i) => pt(i, ring).join(',')).join(' ')} fill="none" stroke="rgb(255 255 255 / .12)" />
+      ))}
+      {axes.map((_, i) => <line key={i} x1={cx} y1={cy} x2={pt(i, 99)[0]} y2={pt(i, 99)[1]} stroke="rgb(255 255 255 / .1)" />)}
+      <polygon points={poly} fill="rgb(var(--club-1) / .45)" stroke="rgb(var(--club-1))" strokeWidth="3" strokeLinejoin="round" />
+      {axes.map((a, i) => {
+        const [x, y] = pt(i, 122)
+        return (
+          <g key={a.label}>
+            <text x={x} y={y - 4} textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="800" fontSize="12" fill="rgb(var(--chalk-dim))">{a.label}</text>
+            <text x={x} y={y + 11} textAnchor="middle" fontFamily="Anton" fontSize="15" fill={statColor(a.value)}>{a.value}</text>
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
 
-  if (!player) {
-    return <div className="text-center p-8 text-on-surface">Player not found.</div>;
-  }
+function Stars({ value, label }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="label">{label}</span>
+      <span className="flex" aria-label={`${value ?? 0} of 5`}>
+        {[1, 2, 3, 4, 5].map((i) => <Icon key={i} name="star" fill={i <= (value || 0)} className={`text-xl ${i <= (value || 0) ? 'text-flood' : 'text-white/20'}`} />)}
+      </span>
+    </div>
+  )
+}
 
-  // Age calculation
-  const currentYear = new Date().getFullYear();
-  const playerAge = player.birth_year ? currentYear - player.birth_year : null;
-
-  // Calculate face stats for radar
-  const attacking = Math.round(((player.finishing || 0) + (player.shot_power || 0) + (player.positioning || 0) + (player.heading_accuracy || 0)) / 4) || 0;
-  const creativity = Math.round(((player.vision || 0) + (player.crossing || 0) + (player.short_passing || 0) + (player.long_passing || 0) + (player.curve || 0)) / 5) || 0;
-  const defending = Math.round(((player.standing_tackle || 0) + (player.sliding_tackle || 0) + (player.interceptions || 0) + (player.defensive_awareness || 0)) / 4) || 0;
-  const physical = Math.round(((player.strength || 0) + (player.stamina || 0) + (player.aggression || 0) + (player.jumping || 0)) / 4) || 0;
-  const tactical = Math.round(((player.reactions || 0) + (player.composure || 0) + (player.ball_control || 0)) / 3) || 0;
-
-  // Radar polygon points (pentagon)
-  const radarData = [
-    { label: 'ATTACKING', value: attacking },
-    { label: 'CREATIVITY', value: creativity },
-    { label: 'TACTICAL', value: tactical },
-    { label: 'DEFENDING', value: defending },
-    { label: 'PHYSICAL', value: physical },
-  ];
-
-  const cx = 150, cy = 150, maxR = 100;
-  const angleStep = (2 * Math.PI) / 5;
-  const startAngle = -Math.PI / 2;
-
-  const getPoint = (i, r) => {
-    const angle = startAngle + i * angleStep;
-    return [cx + r * Math.cos(angle), cy + r * Math.sin(angle)];
-  };
-
-  const radarPoints = radarData.map((d, i) => getPoint(i, (d.value / 99) * maxR));
-  const radarPath = radarPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ') + ' Z';
-  const gridLevels = [0.25, 0.5, 0.75, 1.0];
-
-  // Face stat averages for full attributes display
-  const pace = Math.round(((player.sprint_speed || 0) + (player.acceleration || 0)) / 2) || '--';
-  const sho = Math.round(((player.finishing || 0) + (player.shot_power || 0) + (player.positioning || 0)) / 3) || '--';
-  const pas = Math.round(((player.short_passing || 0) + (player.long_passing || 0) + (player.vision || 0) + (player.crossing || 0)) / 4) || '--';
-  const dri = Math.round(((player.dribbling || 0) + (player.ball_control || 0) + (player.agility || 0) + (player.balance || 0)) / 4) || '--';
-  const def = Math.round(((player.standing_tackle || 0) + (player.sliding_tackle || 0) + (player.interceptions || 0)) / 3) || '--';
-  const phy = Math.round(((player.strength || 0) + (player.stamina || 0)) / 2) || '--';
-
-  // Standout attributes (top 4 by value)
-  const allAttrs = [
-    { name: 'Dribbling', value: player.dribbling || 0 },
-    { name: 'Vision', value: player.vision || 0 },
-    { name: 'Agility', value: player.agility || 0 },
-    { name: 'Finishing', value: player.finishing || 0 },
-    { name: 'Sprint Speed', value: player.sprint_speed || 0 },
-    { name: 'Ball Control', value: player.ball_control || 0 },
-    { name: 'Short Passing', value: player.short_passing || 0 },
-    { name: 'Long Passing', value: player.long_passing || 0 },
-    { name: 'Crossing', value: player.crossing || 0 },
-    { name: 'Shot Power', value: player.shot_power || 0 },
-    { name: 'Strength', value: player.strength || 0 },
-    { name: 'Stamina', value: player.stamina || 0 },
-    { name: 'Reactions', value: player.reactions || 0 },
-    { name: 'Composure', value: player.composure || 0 },
-    { name: 'Balance', value: player.balance || 0 },
-    { name: 'Acceleration', value: player.acceleration || 0 },
-    { name: 'Interceptions', value: player.interceptions || 0 },
-    { name: 'Stand Tackle', value: player.standing_tackle || 0 },
-  ].sort((a, b) => b.value - a.value).slice(0, 4);
-
-  const getStatColor = (val) => {
-    if (val >= 90) return 'text-emerald-400';
-    if (val >= 80) return 'text-primary';
-    if (val >= 70) return 'text-yellow-400';
-    if (val >= 60) return 'text-orange-400';
-    return 'text-red-400';
-  };
-
-  const POSITION_MAP = {
-    'ST': 'Striker', 'RW': 'Right Winger', 'LW': 'Left Winger',
-    'CAM': 'Att. Midfielder', 'CM': 'Central Midfielder', 'CDM': 'Def. Midfielder',
-    'RM': 'Right Midfielder', 'LM': 'Left Midfielder',
-    'CB': 'Centre Back', 'RB': 'Right Back', 'LB': 'Left Back', 'GK': 'Goalkeeper'
-  };
-
-  const playerName = player.known_name || `${player.first_name || ''} ${player.last_name || ''}`.trim();
-  const nameParts = playerName.split(' ');
-  const firstName = nameParts[0];
-  const lastName = nameParts.slice(1).join(' ');
+function Profile({ data }) {
+  const { player, stats, transfers, awards, trophies, timeline, conversion_plans: plans } = data
+  const isGk = player.position === 'GK'
+  const groups = isGk ? [GK_GROUP, ...GROUPS.slice(5)] : GROUPS
+  const potentialGap = (player.potential || 0) - (player.overall || 0)
 
   return (
-    <div className="w-full min-h-screen relative z-10 pb-24">
-      {/* Breadcrumb */}
-      <div className="px-4 sm:px-8 pt-4 pb-2 max-w-[1400px] mx-auto">
-        <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-          <Link to={`/career/${career?.id}/players`} className="hover:text-primary transition-colors">Players</Link>
-          <span className="text-on-surface-variant/40">›</span>
-          <span className="text-on-surface">{playerName}</span>
-        </div>
-      </div>
+    <ThemeScope club={player.club}>
+      <Link to="/players" className="mb-4 inline-flex items-center gap-1 font-head font-bold uppercase text-chalk-dim hover:text-chalk">
+        <Icon name="arrow_back" /> Players
+      </Link>
 
-      {/* ===== HERO SECTION ===== */}
-      <section className="relative w-full min-h-[380px] md:min-h-[440px] overflow-hidden">
-        {/* Background image */}
-        <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-background/30 z-10"></div>
-          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/50 to-transparent z-10"></div>
-          <img
-            className="w-full h-full object-cover object-top opacity-60 mix-blend-luminosity"
-            src={getPlayerImageUrl(player.game_id)}
-            alt={playerName}
-            onError={(e) => { e.target.style.display = 'none'; }}
-          />
-        </div>
-
-        {/* Hero Content */}
-        <div className="relative z-20 max-w-[1400px] mx-auto px-4 sm:px-8 h-full flex flex-col justify-end pb-8 pt-16">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
-            {/* Left: Identity */}
-            <div className="lg:col-span-7 flex flex-col gap-3">
-              {/* Tags */}
-              <div className="flex flex-wrap gap-2 items-center">
-                {player.position && (
-                  <span className="px-4 py-1.5 rounded-full bg-primary text-on-primary text-xs font-bold shadow-lg">
-                    {POSITION_MAP[player.position] || player.position}
-                  </span>
-                )}
-                {player.jersey_number && (
-                  <span className="px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md text-xs font-bold text-gray-200 border border-white/10">
-                    #{player.jersey_number}
-                  </span>
-                )}
-                {player.nationality && (
-                  <span className="px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md text-xs font-bold text-gray-200 border border-white/10 flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-sm">flag</span> {player.nationality}
-                  </span>
-                )}
-                {playerAge && (
-                  <span className="px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md text-xs font-bold text-gray-200 border border-white/10">
-                    Age {playerAge}
-                  </span>
-                )}
-                {player.player_type === 'youth' && (
-                  <span className="px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1">
-                    <span className="material-symbols-outlined text-sm">school</span> Youth Academy
-                  </span>
-                )}
-                {player.player_type === 'regen' && (
-                  <span className="px-3 py-1.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1">
-                    <span className="material-symbols-outlined text-sm">autorenew</span> Regen
-                  </span>
-                )}
-              </div>
-
-              {/* Player Name */}
-              <h1 className="text-5xl md:text-7xl font-black text-white uppercase leading-[0.9] tracking-tight">
-                {firstName}
-                <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-                  {lastName || firstName}
-                </span>
-              </h1>
+      {/* Hero */}
+      <section className="relative mb-8 overflow-hidden rounded-3xl border-2 border-club-1 bg-night-800">
+        <div className="stripes absolute inset-0 opacity-30" aria-hidden="true" />
+        <div className="absolute inset-0 bg-gradient-to-r from-night-800 via-night-800/85 to-transparent" aria-hidden="true" />
+        <PitchLines />
+        <div className="relative grid gap-6 p-5 md:grid-cols-[auto_1fr] md:items-end md:p-8">
+          <div className="mx-auto md:mx-0"><FutCard player={player} size="lg" /></div>
+          <div className="min-w-0">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <PositionChip pos={player.position} />
+              {player.secondary_positions?.split(', ').map((p) => <PositionChip key={p} pos={p} className="opacity-70" />)}
+              {player.nationality && <span className="chip bg-black/60"><Flag code={player.nation_code} className="h-3 w-4" /> {player.nationality}</span>}
+              {player.is_retired && <span className="chip bg-derby">Retired</span>}
             </div>
-
-            {/* Right: Bento Cards */}
-            <div className="lg:col-span-5 grid grid-cols-2 gap-3">
-              {/* Overall Rating Card */}
-              <div className="bg-surface-container/80 backdrop-blur-xl border border-white/10 rounded-2xl p-5 flex flex-col items-center justify-center relative overflow-hidden group">
-                <div className="absolute -right-6 -top-6 w-28 h-28 bg-primary/15 blur-3xl rounded-full group-hover:bg-primary/25 transition-all duration-500"></div>
-                <span className="text-[10px] uppercase font-bold text-on-surface-variant tracking-widest mb-2">Overall Rating</span>
-                <div className="relative w-20 h-20 flex items-center justify-center">
-                  <svg className="w-full h-full transform -rotate-90 absolute" viewBox="0 0 36 36">
-                    <path className="text-white/5" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3"></path>
-                    <path className="text-primary transition-all duration-1000" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeDasharray={`${player.overall || 0}, 100`} strokeLinecap="round" strokeWidth="3"></path>
-                  </svg>
-                  <span className="text-3xl font-black text-white z-10">{player.overall || '--'}</span>
+            <LowerThird title={playerName(player)} subtitle={player.club?.name || 'Free agent'} />
+            <dl className="mt-5 grid grid-cols-3 gap-2 sm:grid-cols-6">
+              {[
+                ['Age', player.age ?? '—'],
+                ['Height', player.height_cm ? `${player.height_cm}cm` : '—'],
+                ['Weight', player.weight_kg ? `${player.weight_kg}kg` : '—'],
+                ['Foot', player.foot || '—'],
+                ['Shirt', player.jersey_number ? `#${player.jersey_number}` : '—'],
+                ['Potential', player.potential ? `${player.potential}${potentialGap > 0 ? ` (+${potentialGap})` : ''}` : '—'],
+              ].map(([k, v]) => (
+                <div key={k} className="rounded-lg bg-black/50 px-3 py-2">
+                  <dt className="label">{k}</dt>
+                  <dd className="num text-xl">{v}</dd>
                 </div>
-                <span className="text-xs font-bold text-primary mt-1.5 flex items-center gap-1">
-                  ↑ POT {player.potential || '--'}
-                </span>
-              </div>
-
-              {/* Current Club Card */}
-              <div className="bg-surface-container/80 backdrop-blur-xl border border-white/10 rounded-2xl p-5 flex flex-col justify-center">
-                <span className="text-[10px] uppercase font-bold text-on-surface-variant tracking-widest mb-3">◊ Current Club</span>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
-                    <span className="material-symbols-outlined text-on-surface-variant text-xl">shield</span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-white leading-tight">{player.club_name || 'Free Agent'}</p>
-                    {player.secondary_positions && (
-                      <p className="text-[10px] text-on-surface-variant mt-0.5">Alt: {player.secondary_positions}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+              ))}
+            </dl>
+            {player.club && (
+              <Link to={`/clubs/${player.club.id}`} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-black/50 px-3 py-2 hover:bg-black/70">
+                <ClubCrest club={player.club} className="h-7 w-7" />
+                <span className="font-head font-bold uppercase">{player.club.name}</span>
+                <Icon name="arrow_forward" className="text-chalk-dim" />
+              </Link>
+            )}
           </div>
         </div>
       </section>
 
-      {/* ===== MAIN CONTENT BENTO GRID ===== */}
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-8 mt-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-
-          {/* LEFT COLUMN */}
-          <div className="lg:col-span-5 flex flex-col gap-5">
-
-            {/* Profiler Radar */}
-            <div className="bg-surface-container/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-5">
-                <span className="material-symbols-outlined text-primary text-lg">radar</span>
-                <h3 className="text-base font-bold text-white">Profiler</h3>
-                <span className="ml-auto text-[10px] bg-white/5 px-2 py-1 rounded-full text-on-surface-variant font-bold border border-white/5">
-                  {career?.current_season || 'SEASON'}
-                </span>
-              </div>
-
-              {/* Radar Chart */}
-              <div className="flex justify-center">
-                <svg viewBox="0 0 300 300" className="w-full max-w-[280px]">
-                  {/* Grid lines */}
-                  {gridLevels.map((level, li) => {
-                    const pts = Array.from({ length: 5 }, (_, i) => getPoint(i, maxR * level));
-                    const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ') + ' Z';
-                    return <path key={li} d={path} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="1" />;
-                  })}
-                  {/* Axes */}
-                  {Array.from({ length: 5 }, (_, i) => {
-                    const [ex, ey] = getPoint(i, maxR);
-                    return <line key={i} x1={cx} y1={cy} x2={ex} y2={ey} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />;
-                  })}
-                  {/* Data polygon */}
-                  <path d={radarPath} fill="rgba(78,222,163,0.15)" stroke="rgb(78,222,163)" strokeWidth="2" />
-                  {/* Data points */}
-                  {radarPoints.map((p, i) => (
-                    <circle key={i} cx={p[0]} cy={p[1]} r="4" fill="rgb(78,222,163)" stroke="#111" strokeWidth="1.5" />
-                  ))}
-                  {/* Labels */}
-                  {radarData.map((d, i) => {
-                    const [lx, ly] = getPoint(i, maxR + 28);
-                    return (
-                      <text key={i} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
-                        className="fill-on-surface-variant text-[9px] font-bold uppercase tracking-wider">
-                        {d.label}
-                      </text>
-                    );
-                  })}
-                </svg>
-              </div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
+        <div className="space-y-6">
+          <section className="panel p-5">
+            <SectionBanner title="Shape" color="club" />
+            <Radar player={player} />
+            <div className="mt-4 space-y-2">
+              <Stars label="Weak foot" value={player.weak_foot_ability} />
+              <Stars label="Skill moves" value={player.skill_moves} />
+              <Stars label="Int. reputation" value={player.international_rep} />
             </div>
+          </section>
 
-            {/* Standout Attributes */}
-            <div className="bg-surface-container/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-              <h3 className="text-base font-bold text-white mb-5">Standout Attributes</h3>
-              <div className="flex flex-col gap-4">
-                {allAttrs.map((attr, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <span className="text-sm text-on-surface-variant w-28 shrink-0">{attr.name}</span>
-                    <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-primary to-primary/60 transition-all duration-1000"
-                        style={{ width: `${attr.value}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm font-bold text-primary w-8 text-right">{attr.value}</span>
-                  </div>
+          {plans?.length > 0 && (
+            <section className="panel p-5">
+              <SectionBanner title="Retrain" kicker="Position switch" color="cyan" />
+              <ul className="space-y-2">
+                {plans.slice(0, 6).map((p) => (
+                  <li key={p.target_position} className="flex items-center gap-3 rounded-lg bg-white/5 px-3 py-2">
+                    <PositionChip pos={p.target_position} />
+                    <span className="flex-1 text-sm text-chalk-dim">{p.difficulty}{p.is_secondary ? ' · already listed' : ''}</span>
+                    <span className="num text-lg">{p.weeks}<span className="ml-0.5 font-head text-sm text-chalk-dim">wk</span></span>
+                  </li>
                 ))}
-              </div>
+              </ul>
+            </section>
+          )}
+        </div>
+
+        <div className="space-y-6">
+          <section className="panel p-5">
+            <SectionBanner title="Attributes" color="flood" />
+            <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+              {groups.map((g, gi) => (
+                <div key={g.title}>
+                  <div className="mb-2 flex items-baseline justify-between border-b-2 pb-1" style={{ borderColor: `rgb(var(--${g.color}))` }}>
+                    <h3 className="text-xl" style={{ color: `rgb(var(--${g.color}))` }}>{g.title}</h3>
+                    <span className="num text-2xl" style={{ color: statColor(avg(player, g.keys)) }}>{avg(player, g.keys)}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {g.keys.map(([k, label], i) => <StatBar key={k} label={label} value={player[k]} delay={gi * 60 + i * 30} />)}
+                  </div>
+                </div>
+              ))}
             </div>
+          </section>
 
-            {/* Position Conversion */}
-            <div className="bg-surface-container/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="material-symbols-outlined text-primary text-lg">published_with_changes</span>
-                <h3 className="text-base font-bold text-white">Position Conversion</h3>
-              </div>
-              <p className="text-[11px] text-on-surface-variant mb-5">Estimated conversion time based on attributes, position distance & age.</p>
-
-              {conversionPlans.length > 0 ? (
-                <div className="grid grid-cols-2 gap-3">
-                  {conversionPlans.slice(0, 6).map((plan, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-3 rounded-xl border transition-all ${
-                        plan.is_secondary
-                          ? 'bg-primary/10 border-primary/30'
-                          : 'bg-white/[0.03] border-white/5 hover:border-white/15'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-lg font-black text-on-surface">{plan.target_position}</span>
-                        <span className="text-[10px] font-bold text-tertiary bg-tertiary/10 px-2 py-0.5 rounded-full">
-                          {plan.suitability}%
-                        </span>
-                      </div>
-                      {plan.is_secondary && (
-                        <span className="text-[8px] bg-primary/20 text-primary border border-primary/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider inline-block mb-1.5">
-                          Natural Alt
-                        </span>
-                      )}
-                      <div className="flex items-baseline justify-between pt-2 border-t border-white/5">
-                        <span className="text-[10px] text-on-surface-variant">{plan.difficulty}</span>
-                        <span className="text-lg font-black text-primary">{plan.weeks}<span className="text-xs ml-0.5">wks</span></span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-on-surface-variant text-sm p-4 bg-white/[0.02] rounded-xl border border-white/5 text-center">
-                  No position conversions available.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* RIGHT COLUMN */}
-          <div className="lg:col-span-7 flex flex-col gap-5">
-
-            {/* Full Attributes Breakdown */}
-            <div className="bg-surface-container/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-5">
-                <span className="material-symbols-outlined text-primary text-lg">analytics</span>
-                <h3 className="text-base font-bold text-white">Attributes Breakdown</h3>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-5">
-                {/* Pace */}
-                <div>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Pace</span>
-                    <span className={`text-lg font-black ${typeof pace === 'number' ? getStatColor(pace) : 'text-gray-500'}`}>{pace}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Sprint Speed</span><span className={getStatColor(player.sprint_speed || 0)}>{player.sprint_speed || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Acceleration</span><span className={getStatColor(player.acceleration || 0)}>{player.acceleration || '--'}</span></div>
-                  </div>
-                </div>
-                {/* Shooting */}
-                <div>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Shooting</span>
-                    <span className={`text-lg font-black ${typeof sho === 'number' ? getStatColor(sho) : 'text-gray-500'}`}>{sho}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Finishing</span><span className={getStatColor(player.finishing || 0)}>{player.finishing || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Shot Power</span><span className={getStatColor(player.shot_power || 0)}>{player.shot_power || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Positioning</span><span className={getStatColor(player.positioning || 0)}>{player.positioning || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Long Shots</span><span className={getStatColor(player.long_shots || 0)}>{player.long_shots || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Volleys</span><span className={getStatColor(player.volleys || 0)}>{player.volleys || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Penalties</span><span className={getStatColor(player.penalties || 0)}>{player.penalties || '--'}</span></div>
-                  </div>
-                </div>
-                {/* Passing */}
-                <div>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Passing</span>
-                    <span className={`text-lg font-black ${typeof pas === 'number' ? getStatColor(pas) : 'text-gray-500'}`}>{pas}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Short Passing</span><span className={getStatColor(player.short_passing || 0)}>{player.short_passing || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Long Passing</span><span className={getStatColor(player.long_passing || 0)}>{player.long_passing || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Vision</span><span className={getStatColor(player.vision || 0)}>{player.vision || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Crossing</span><span className={getStatColor(player.crossing || 0)}>{player.crossing || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>FK Accuracy</span><span className={getStatColor(player.free_kick_accuracy || 0)}>{player.free_kick_accuracy || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Curve</span><span className={getStatColor(player.curve || 0)}>{player.curve || '--'}</span></div>
-                  </div>
-                </div>
-                {/* Dribbling */}
-                <div>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Dribbling</span>
-                    <span className={`text-lg font-black ${typeof dri === 'number' ? getStatColor(dri) : 'text-gray-500'}`}>{dri}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Dribbling</span><span className={getStatColor(player.dribbling || 0)}>{player.dribbling || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Ball Control</span><span className={getStatColor(player.ball_control || 0)}>{player.ball_control || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Agility</span><span className={getStatColor(player.agility || 0)}>{player.agility || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Balance</span><span className={getStatColor(player.balance || 0)}>{player.balance || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Reactions</span><span className={getStatColor(player.reactions || 0)}>{player.reactions || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Composure</span><span className={getStatColor(player.composure || 0)}>{player.composure || '--'}</span></div>
-                  </div>
-                </div>
-                {/* Defending */}
-                <div>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Defending</span>
-                    <span className={`text-lg font-black ${typeof def === 'number' ? getStatColor(def) : 'text-gray-500'}`}>{def}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Stand Tackle</span><span className={getStatColor(player.standing_tackle || 0)}>{player.standing_tackle || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Slide Tackle</span><span className={getStatColor(player.sliding_tackle || 0)}>{player.sliding_tackle || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Interceptions</span><span className={getStatColor(player.interceptions || 0)}>{player.interceptions || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Heading</span><span className={getStatColor(player.heading_accuracy || 0)}>{player.heading_accuracy || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Def Awareness</span><span className={getStatColor(player.defensive_awareness || 0)}>{player.defensive_awareness || '--'}</span></div>
-                  </div>
-                </div>
-                {/* Physical */}
-                <div>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Physical</span>
-                    <span className={`text-lg font-black ${typeof phy === 'number' ? getStatColor(phy) : 'text-gray-500'}`}>{phy}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Strength</span><span className={getStatColor(player.strength || 0)}>{player.strength || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Stamina</span><span className={getStatColor(player.stamina || 0)}>{player.stamina || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Aggression</span><span className={getStatColor(player.aggression || 0)}>{player.aggression || '--'}</span></div>
-                    <div className="flex justify-between text-[11px] text-on-surface-variant"><span>Jumping</span><span className={getStatColor(player.jumping || 0)}>{player.jumping || '--'}</span></div>
-                  </div>
-                </div>
-              </div>
-              {/* GK Stats (only show for goalkeepers) */}
-              {player.position === 'GK' && (
-                <div className="mt-5 pt-5 border-t border-white/10">
-                  <h4 className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-3">Goalkeeper</h4>
-                  <div className="grid grid-cols-5 gap-3">
-                    {[{l:'Diving',v:player.gk_diving},{l:'Handling',v:player.gk_handling},{l:'Kicking',v:player.gk_kicking},{l:'Positioning',v:player.gk_positioning},{l:'Reflexes',v:player.gk_reflexes}].map((g,i) => (
-                      <div key={i} className="flex flex-col items-center gap-1 p-2 bg-white/[0.03] rounded-lg">
-                        <span className={`text-lg font-black ${getStatColor(g.v || 0)}`}>{g.v || '--'}</span>
-                        <span className="text-[9px] text-on-surface-variant">{g.l}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {/* Meta info */}
-              <div className="mt-5 pt-4 border-t border-white/10 flex flex-wrap gap-4">
-                {player.weak_foot_ability && (
-                  <div className="text-xs text-on-surface-variant">
-                    <span className="font-bold text-white">Weak Foot:</span> {'⭐'.repeat(player.weak_foot_ability)}
-                  </div>
-                )}
-                {player.skill_moves && (
-                  <div className="text-xs text-on-surface-variant">
-                    <span className="font-bold text-white">Skill Moves:</span> {'⭐'.repeat(player.skill_moves)}
-                  </div>
-                )}
-                {player.international_rep && (
-                  <div className="text-xs text-on-surface-variant">
-                    <span className="font-bold text-white">Intl. Rep:</span> {'⭐'.repeat(player.international_rep)}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Career Statistics Table */}
-            <div className="bg-surface-container/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-5">
-                <span className="material-symbols-outlined text-primary text-lg">bar_chart</span>
-                <h3 className="text-base font-bold text-white">Career Statistics</h3>
-              </div>
+          <section className="panel overflow-hidden">
+            <div className="p-5 pb-0"><SectionBanner title="Season stats" color="pitch" /></div>
+            {stats.length ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="text-[10px] uppercase text-on-surface-variant tracking-wider border-b border-white/10">
-                      <th className="px-3 py-2.5">Season</th>
-                      <th className="px-3 py-2.5">Club</th>
-                      <th className="px-3 py-2.5 text-center">APP</th>
-                      <th className="px-3 py-2.5 text-center">GLS</th>
-                      <th className="px-3 py-2.5 text-center">AST</th>
-                      <th className="px-3 py-2.5 text-center">AVG</th>
+                <table className="w-full min-w-[32rem] text-left">
+                  <thead className="bg-black/40 font-head text-sm uppercase text-chalk-dim">
+                    <tr>
+                      <th scope="col" className="px-5 py-2">Season</th>
+                      <th scope="col" className="px-3 py-2">Club</th>
+                      <th scope="col" className="px-3 py-2 text-right">Goals</th>
+                      <th scope="col" className="px-3 py-2 text-right">Yel</th>
+                      <th scope="col" className="px-3 py-2 text-right">Red</th>
+                      <th scope="col" className="px-5 py-2 text-right" title="Average of recent match ratings">Form</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {stats.length > 0 ? (
-                      stats.map((s, idx) => (
-                        <tr key={idx} className="border-b border-white/[0.03] hover:bg-white/[0.03] transition-colors">
-                          <td className="px-3 py-3 text-white font-mono text-xs">{s.season_year}</td>
-                          <td className="px-3 py-3 text-white font-semibold text-xs flex items-center gap-2">
-                            <span className="w-1 h-1 rounded-full bg-primary inline-block"></span>
-                            {s.club_name}
-                          </td>
-                          <td className="px-3 py-3 text-on-surface-variant text-center text-xs">{s.appearances}</td>
-                          <td className="px-3 py-3 text-primary font-bold text-center text-xs">{s.goals}</td>
-                          <td className="px-3 py-3 text-primary font-bold text-center text-xs">{s.assists}</td>
-                          <td className="px-3 py-3 font-mono text-orange-400 font-bold text-center text-xs">{s.avg_rating?.toFixed(1)}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="6" className="text-center text-on-surface-variant/50 py-8 text-sm">
-                          No season statistics available.
-                        </td>
+                    {stats.map((s) => (
+                      <tr key={`${s.season_year}-${s.club_name}`} className="border-t border-white/5">
+                        <td className="num px-5 py-3 text-lg">{seasonLabel(s.season_year)}</td>
+                        <td className="px-3 py-3"><span className="flex items-center gap-2"><ClubCrest club={s.club} className="h-6 w-6" />{s.club_name}</span></td>
+                        <td className="num px-3 py-3 text-right text-2xl text-pitch">{s.goals ?? 0}</td>
+                        <td className="px-3 py-3 text-right"><span className="inline-block h-4 w-3 rounded-sm bg-flood align-middle" aria-hidden="true" /> {s.yellow_cards ?? 0}</td>
+                        <td className="px-3 py-3 text-right"><span className="inline-block h-4 w-3 rounded-sm bg-derby align-middle" aria-hidden="true" /> {s.red_cards ?? 0}</td>
+                        <td className="num px-5 py-3 text-right text-xl" style={{ color: s.avg_rating ? statColor(s.avg_rating * 10) : undefined }}>{s.avg_rating ? s.avg_rating.toFixed(1) : '—'}</td>
                       </tr>
-                    )}
+                    ))}
                   </tbody>
                 </table>
               </div>
-            </div>
+            ) : <p className="p-5 text-chalk-dim">No stats recorded yet.</p>}
+          </section>
 
-            {/* Bottom Row: Trajectory + Cabinet */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* Trajectory */}
-              <div className="bg-surface-container/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-                <div className="flex items-center gap-2 mb-5">
-                  <span className="material-symbols-outlined text-primary text-lg">timeline</span>
-                  <h3 className="text-base font-bold text-white">Trajectory</h3>
-                </div>
-                <div className="flex flex-col gap-0">
-                  {timeline.length > 0 ? (
-                    timeline.slice(0, 6).map((ev, idx) => (
-                      <div key={idx} className="flex gap-3 pb-4 last:pb-0">
-                        <div className="flex flex-col items-center">
-                          <div className={`w-2.5 h-2.5 rounded-full ${idx === 0 ? 'bg-primary shadow-[0_0_8px_rgba(78,222,163,0.5)]' : 'bg-white/20'}`}></div>
-                          {idx < Math.min(timeline.length, 6) - 1 && <div className="w-px flex-1 bg-white/10 mt-1"></div>}
-                        </div>
-                        <div className="flex-1 -mt-1">
-                          <span className="text-[10px] font-bold text-primary uppercase tracking-wider">Season {ev.season_year}</span>
-                          <p className="text-xs text-on-surface-variant mt-0.5 leading-relaxed">{ev.description}</p>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-center text-on-surface-variant/50 py-4 text-sm">No timeline events.</p>
-                  )}
-                </div>
-              </div>
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
+            <section className="panel p-5">
+              <SectionBanner title="Honours" color="flood" />
+              {trophies.length || awards.length ? (
+                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {[...trophies.map((t) => ({ ...t, kind: 'Team' })), ...awards.map((a) => ({ name: a.name, icon: a.icon, year: a.season_year, kind: 'Individual' }))].map((t, i) => (
+                    <li key={`${t.name}-${t.year}-${i}`} className="flex flex-col items-center rounded-xl bg-gradient-to-b from-flood/15 to-transparent p-3 text-center">
+                      <TrophyImage src={t.icon} name={t.name} className="h-14 w-14" />
+                      <span className="mt-2 font-head text-sm font-bold uppercase leading-tight">{t.name}</span>
+                      <span className="label mt-0.5">{seasonLabel(t.year)} · {t.kind}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-chalk-dim">No silverware yet.</p>}
+            </section>
 
-              {/* Cabinet */}
-              <div className="bg-surface-container/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-                <div className="flex items-center gap-2 mb-5">
-                  <span className="material-symbols-outlined text-primary text-lg">emoji_events</span>
-                  <h3 className="text-base font-bold text-white">Honours & Cabinet ({awards.length + trophies.length})</h3>
-                </div>
-                <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
-                  {awards.length > 0 || trophies.length > 0 ? (
-                    <>
-                      {awards.map((aw, idx) => (
-                        <div key={`aw-${idx}`} className="flex flex-col items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
-                          <img src="/api/images/trophy/balondor" alt="Award" className="w-8 h-8 object-contain" />
-                          <span className="text-[10px] font-bold text-white leading-tight">{aw.name}</span>
-                          <span className="text-[9px] text-amber-400 font-bold">Award ({aw.season_year})</span>
-                        </div>
-                      ))}
-                      {trophies.map((tr, idx) => (
-                        <div key={`tr-${idx}`} className="flex flex-col items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center">
-                          <img src={tr.icon || "/api/images/trophy/pl"} alt="Trophy" className="w-8 h-8 object-contain" />
-                          <span className="text-[10px] font-bold text-white leading-tight">{tr.name}</span>
-                          <span className="text-[9px] text-emerald-400 font-bold">Team Silverware ({tr.season_year || 'Won'})</span>
-                        </div>
-                      ))}
-                    </>
-                  ) : (
-                    <div className="col-span-2 text-center text-on-surface-variant/50 py-4 text-sm">
-                      No trophies recorded yet.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Transfer History */}
-            <div className="bg-surface-container/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-5">
-                <span className="material-symbols-outlined text-primary text-lg">swap_horiz</span>
-                <h3 className="text-base font-bold text-white">Transfer History</h3>
-              </div>
-              <div className="flex flex-col gap-3">
-                {transfers.length > 0 ? (
-                  transfers.map((t, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-white/[0.03] p-3.5 rounded-xl border border-white/5 hover:border-white/10 transition-all">
-                      <div>
-                        <p className="text-[10px] text-on-surface-variant font-mono uppercase tracking-wider">Season {t.season_year}</p>
-                        <p className="text-xs text-white font-semibold mt-0.5">{t.from_club_name} ➔ {t.to_club_name}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] text-primary font-bold uppercase">{t.type}</p>
-                        <p className="text-sm text-orange-400 font-bold font-mono">
-                          {t.fee > 0 ? `€${(t.fee / 1000000).toFixed(1)}M` : 'Free'}
-                        </p>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center text-on-surface-variant/50 py-4 text-sm">
-                    No transfer records.
-                  </div>
-                )}
-              </div>
-            </div>
+            <section className="panel p-5">
+              <SectionBanner title="Transfers" color="tangerine" />
+              {transfers.length ? (
+                <ul className="space-y-2">
+                  {transfers.map((t, i) => (
+                    <li key={i} className="flex items-center gap-2 rounded-lg bg-white/5 p-2">
+                      <ClubCrest club={t.from_club} name={t.from_club_name} className="h-7 w-7" />
+                      <Icon name="double_arrow" className="text-tangerine" />
+                      <ClubCrest club={t.to_club} name={t.to_club_name} className="h-7 w-7" />
+                      <span className="min-w-0 flex-1 truncate text-sm">{t.to_club_name}</span>
+                      <span className="num text-lg text-flood">{t.type === 'loan' ? 'Loan' : formatFee(t.fee)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-chalk-dim">No moves logged in this universe.</p>}
+            </section>
           </div>
+
+          {timeline.length > 0 && (
+            <section className="panel p-5">
+              <SectionBanner title="Storylines" color="violet" />
+              <ol className="space-y-2">
+                {timeline.map((e, i) => (
+                  <li key={i} className="flex gap-3 rounded-lg bg-white/5 p-3">
+                    <span className="num text-flood">{seasonLabel(e.season_year)}</span>
+                    <span>{e.description}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
         </div>
       </div>
-    </div>
-  );
+    </ThemeScope>
+  )
+}
+
+export default function PlayerProfile() {
+  const { career } = useOutletContext()
+  const { id } = useParams()
+  const state = useApi(career ? `/careers/${career.id}/players/${id}/profile` : null)
+  if (!career) return <EmptyState icon="public" title="No universe selected" />
+  return <Async state={state} loadingLabel="Pulling up the player">{(data) => <Profile data={data} />}</Async>
 }

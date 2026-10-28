@@ -1,393 +1,189 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom'
+import { unwrap, useApi } from './lib/api'
+import { formatFee, ordinal } from './lib/format'
+import { LowerThird, PitchLines, ThemeScope } from './components/broadcast'
+import { ClubCrest, TrophyImage } from './components/media'
+import { Async, EmptyState, Icon, SectionBanner, StatTile } from './components/ui'
 
-function TrophyImage({ src, alt, className = "w-10 h-10" }) {
-  const [failed, setFailed] = useState(false);
-  if (failed || !src) {
-    return <span className="text-2xl">🏆</span>;
-  }
+function WdlBar({ w, d, l }) {
+  const total = w + d + l || 1
   return (
-    <img 
-      src={src} 
-      alt={alt || "Trophy"} 
-      className={`${className} object-contain drop-shadow-lg`}
-      onError={() => setFailed(true)}
-    />
-  );
+    <div className="flex h-3 overflow-hidden rounded-sm" role="img" aria-label={`${w} wins, ${d} draws, ${l} losses`}>
+      <div className="bg-pitch" style={{ width: `${(w / total) * 100}%` }} />
+      <div className="bg-flood" style={{ width: `${(d / total) * 100}%` }} />
+      <div className="bg-derby" style={{ width: `${(l / total) * 100}%` }} />
+    </div>
+  )
 }
 
-export default function CareerProfile() {
-  const context = useOutletContext() || {};
-  const { career } = context;
+/** League finish per season — lower is better, so the chart is drawn upside down. */
+function FinishChart({ seasons }) {
+  // Seasons with no matches carry a placeholder position in the save, so skip them
+  const pts = seasons.filter((s) => s.table_position && s.matches > 0)
+  if (pts.length < 1) return <p className="text-chalk-dim">League finishes appear once a season has been played.</p>
+  const maxPos = Math.max(20, ...pts.map((s) => s.table_position))
+  const w = 560, h = 220, pad = 34
+  const x = (i) => pad + (pts.length === 1 ? (w - pad * 2) / 2 : (i * (w - pad * 2)) / (pts.length - 1))
+  const y = (p) => pad + ((p - 1) * (h - pad * 2)) / (maxPos - 1)
+  const color = (p) => (p === 1 ? 'rgb(var(--flood))' : p <= 4 ? 'rgb(var(--cyan))' : p >= maxPos - 2 ? 'rgb(var(--derby))' : 'rgb(var(--chalk))')
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" role="img" aria-label={pts.map((s) => `${s.season_label}: ${ordinal(s.table_position)}`).join(', ')}>
+      <rect x={pad} y={y(1) - 10} width={w - pad * 2} height={y(4) - y(1) + 20} fill="rgb(var(--cyan) / .08)" />
+      {[1, 5, 10, 15, 20].filter((p) => p <= maxPos).map((p) => (
+        <g key={p}>
+          <line x1={pad} x2={w - pad} y1={y(p)} y2={y(p)} stroke="rgb(255 255 255 / .08)" />
+          <text x={pad - 8} y={y(p) + 4} textAnchor="end" fontFamily="Anton" fontSize="12" fill="rgb(var(--chalk-dim))">{p}</text>
+        </g>
+      ))}
+      <polyline points={pts.map((s, i) => `${x(i)},${y(s.table_position)}`).join(' ')} fill="none" stroke="rgb(var(--club-1))" strokeWidth="4" strokeLinejoin="round" />
+      {pts.map((s, i) => (
+        <g key={`${s.year}-${i}`}>
+          <circle cx={x(i)} cy={y(s.table_position)} r="11" fill={color(s.table_position)} stroke="rgb(var(--night))" strokeWidth="3" />
+          <text x={x(i)} y={y(s.table_position) + 4} textAnchor="middle" fontFamily="Anton" fontSize="11" fill="rgb(var(--night))">{s.table_position}</text>
+          <text x={x(i)} y={h - 6} textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="800" fontSize="13" fill="rgb(var(--chalk-dim))">{s.season_label}</text>
+        </g>
+      ))}
+    </svg>
+  )
+}
 
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    if (!career?.id) return;
-    setLoading(true);
-    fetch(`/api/careers/${career.id}/profile`)
-      .then(res => res.json())
-      .then(json => {
-        if (json.success && json.data) {
-          setProfile(json.data);
-        } else {
-          setError("Failed to load career profile.");
-        }
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Failed to fetch career profile:", err);
-        setError(err.message);
-        setLoading(false);
-      });
-  }, [career]);
-
-  const getLogoUrl = (gameId) => {
-    if (!gameId) return null;
-    return `/api/images/club/${gameId}?v=2`;
-  };
-
-  if (!career) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <span className="material-symbols-outlined text-5xl text-slate-500 mb-4">person_off</span>
-        <p className="text-slate-400 text-sm">Please select a career universe first.</p>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24">
-        <div className="w-12 h-12 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin mb-4 shadow-[0_0_20px_rgba(78,222,163,0.3)]"></div>
-        <p className="text-slate-400 text-xs font-mono uppercase tracking-widest">Building Legacy Profile...</p>
-      </div>
-    );
-  }
-
-  if (error || !profile) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <span className="material-symbols-outlined text-5xl text-red-400 mb-4">error</span>
-        <p className="text-red-400 text-sm">{error || "Failed to load profile"}</p>
-        <p className="text-slate-500 text-xs mt-2">Try re-syncing your save file first.</p>
-      </div>
-    );
-  }
-
-  const { 
-    manager_name, team_name, team_id,
-    career_start, career_end, total_seasons,
-    total_trophies, trophy_counts,
-    career_matches, career_wins, career_win_pct,
-    awards_count, club_journey, managerial_stats: raw_mgr_stats, mastermind_stats: raw_mm_stats
-  } = profile;
-
-  const stats_list = raw_mgr_stats || raw_mm_stats || [];
+function Legacy({ data }) {
+  const tc = data.trophy_counts
+  const seasons = data.club_journey.flatMap((t) => t.seasons.map((s) => ({ ...s, club: t.club })))
+  const winPct = data.career_win_pct
 
   return (
-    <div className="w-full max-w-7xl mx-auto py-2 px-2 sm:px-4 space-y-8">
-      
-      {/* ═══════════════════ HERO BANNER ═══════════════════ */}
-      <div className="relative rounded-3xl overflow-hidden bg-slate-900 border border-white/10 shadow-2xl">
-        {/* Background */}
-        <div className="relative h-56 sm:h-72 w-full overflow-hidden">
-          <img 
-            src="/assets/stadium1.png" 
-            alt="Stadium" 
-            className="w-full h-full object-cover opacity-40"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0e1217] via-[#0e1217]/70 to-transparent"></div>
-          <div className="absolute inset-0 bg-gradient-to-r from-emerald-900/20 via-transparent to-transparent"></div>
-        </div>
-
-        {/* Hero Content */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="flex items-end gap-5">
-            {/* Manager Badge */}
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-black/60 border-2 border-emerald-400/40 p-2 flex items-center justify-center backdrop-blur-xl shadow-[0_0_30px_rgba(78,222,163,0.2)] flex-shrink-0">
-              {team_id ? (
-                <img 
-                  src={getLogoUrl(team_id)} 
-                  alt={team_name} 
-                  className="w-full h-full object-contain drop-shadow-xl"
-                  onError={(e) => { e.target.style.display = 'none'; }}
-                />
-              ) : (
-                <span className="material-symbols-outlined text-emerald-400 text-5xl">person</span>
-              )}
-            </div>
-
-            {/* Manager Info */}
-            <div className="space-y-1.5">
-              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold uppercase tracking-widest">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                Legacy Hub
-              </div>
-              <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-                {manager_name}
-              </h1>
-              <p className="text-slate-400 text-sm font-medium">
-                {team_name} • {career_start} - Present • {total_seasons} {total_seasons === 1 ? 'Season' : 'Seasons'}
-              </p>
-            </div>
-          </div>
-
-          {/* Career Stats Capsule */}
-          <div className="flex items-center gap-5 sm:gap-6 bg-black/50 border border-white/10 rounded-2xl p-4 px-6 backdrop-blur-md self-start md:self-auto">
-            <div className="text-center">
-              <p className="text-2xl font-black text-amber-400">{total_trophies}</p>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Trophies</p>
-            </div>
-            <div className="h-8 w-px bg-white/10"></div>
-            <div className="text-center">
-              <p className="text-2xl font-black text-emerald-400">{career_win_pct}%</p>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Win Rate</p>
-            </div>
-            <div className="h-8 w-px bg-white/10"></div>
-            <div className="text-center">
-              <p className="text-2xl font-black text-white">{career_matches}</p>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Matches</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ═══════════════════ TROPHY ROOM ═══════════════════ */}
-      <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-xl">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <TrophyImage src="/api/images/trophy/ucl" alt="Trophy" className="w-8 h-8" />
+    <ThemeScope club={data.team}>
+      <section className="relative mb-8 overflow-hidden rounded-3xl border-2 border-club-1 bg-night-800">
+        <div className="grass absolute inset-0 opacity-60" aria-hidden="true" />
+        <PitchLines />
+        <div className="absolute inset-0 bg-gradient-to-t from-night-800 via-night-800/50 to-transparent" aria-hidden="true" />
+        <div className="relative p-5 sm:p-8">
+          <p className="label mb-3 text-flood">The Legacy Hub · {data.career_start}–{data.current_season}</p>
+          <LowerThird title={data.manager_name} subtitle={data.team_name} />
+          <div className="mt-6 flex flex-wrap items-end gap-6">
             <div>
-              <h2 className="text-xl font-bold text-white">The Trophy Room</h2>
-              <p className="text-xs text-slate-400">Career silverware across all clubs managed</p>
+              <div className="num text-mega leading-none text-flood">{data.total_trophies}</div>
+              <div className="label">Trophies</div>
+            </div>
+            <div>
+              <div className="num text-giant leading-none">{data.career_matches}</div>
+              <div className="label">Matches</div>
+            </div>
+            <div>
+              <div className="num text-giant leading-none text-pitch">{winPct}%</div>
+              <div className="label">Win rate</div>
+            </div>
+            <div>
+              <div className="num text-giant leading-none text-cyan">{data.total_seasons}</div>
+              <div className="label">Seasons</div>
             </div>
           </div>
-          <span className="text-xs text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full">
-            {total_trophies} Total
-          </span>
         </div>
+      </section>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5 text-center flex flex-col items-center hover:border-amber-500/30 transition-colors group">
-            <TrophyImage src="/api/images/trophy/ucl" alt="Champions League" className="w-12 h-12 group-hover:scale-110 transition-transform" />
-            <p className="text-2xl font-black text-amber-400 mt-2">{trophy_counts.champions_league}</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Champions League</p>
-          </div>
-          <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5 text-center flex flex-col items-center hover:border-amber-500/30 transition-colors group">
-            <TrophyImage src="/api/images/trophy/pl" alt="League Titles" className="w-12 h-12 group-hover:scale-110 transition-transform" />
-            <p className="text-2xl font-black text-amber-400 mt-2">{trophy_counts.league_title}</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">League Titles</p>
-          </div>
-          <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5 text-center flex flex-col items-center hover:border-amber-500/30 transition-colors group">
-            <TrophyImage src="/api/images/trophy/fa" alt="Domestic Cups" className="w-12 h-12 group-hover:scale-110 transition-transform" />
-            <p className="text-2xl font-black text-amber-400 mt-2">{trophy_counts.domestic_cup}</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Domestic Cups</p>
-          </div>
-          <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5 text-center flex flex-col items-center hover:border-amber-500/30 transition-colors group">
-            <TrophyImage src="/api/images/trophy/uel" alt="Other" className="w-12 h-12 group-hover:scale-110 transition-transform" />
-            <p className="text-2xl font-black text-amber-400 mt-2">{trophy_counts.europa_league + trophy_counts.other}</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Int. / Other Cups</p>
-          </div>
-        </div>
+      <div className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatTile label="Champions League" value={tc.champions_league} color="cyan" icon="star" />
+        <StatTile label="League titles" value={tc.league_title} color="flood" icon="emoji_events" />
+        <StatTile label="Domestic cups" value={tc.domestic_cup} color="pitch" icon="trophy" />
+        <StatTile label="Europa / Conference" value={tc.europa_league} color="tangerine" icon="workspace_premium" />
       </div>
 
-      {/* ═══════════════════ CLUB JOURNEY ═══════════════════ */}
-      <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-xl">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <span className="material-symbols-outlined text-emerald-400">route</span>
-              Club Journey
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">Your managerial path through football history</p>
-          </div>
-          <span className="text-xs text-slate-400 font-mono">
-            📅 {career_start} - Present
-          </span>
-        </div>
-
-        {club_journey.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-sm italic">
-            <span className="material-symbols-outlined text-3xl text-slate-600 block mb-2">map</span>
-            No career history data found. Try re-syncing your save file.
-          </div>
-        ) : (
-          <div className="flex gap-4 overflow-x-auto pb-3 scrollbar-none">
-            {club_journey.map((tenure, idx) => (
-              <div 
-                key={idx}
-                className={`flex-shrink-0 w-64 rounded-2xl p-5 border transition-all relative overflow-hidden ${
-                  tenure.is_current 
-                    ? 'bg-emerald-500/10 border-emerald-500/40 shadow-[0_0_25px_rgba(78,222,163,0.15)]' 
-                    : 'bg-white/[0.03] border-white/10 hover:border-white/20'
-                }`}
-              >
-                {/* Tenure date badge */}
-                <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold mb-3 ${
-                  tenure.is_current 
-                    ? 'bg-emerald-400/20 text-emerald-400 border border-emerald-400/30' 
-                    : 'bg-white/5 text-slate-400 border border-white/10'
-                }`}>
-                  {tenure.start_year} - {tenure.is_current ? 'Present' : tenure.end_year}
-                </div>
-
-                {/* Club Logo + Info */}
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-xl bg-black/40 border border-white/10 p-1 flex items-center justify-center flex-shrink-0">
-                    {tenure.club_game_id ? (
-                      <img 
-                        src={getLogoUrl(tenure.club_game_id)} 
-                        alt={tenure.club_name}
-                        className="w-full h-full object-contain"
-                        onError={(e) => { e.target.style.display = 'none'; }}
-                      />
-                    ) : (
-                      <span className="material-symbols-outlined text-slate-500">shield</span>
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className={`text-base font-bold truncate ${tenure.is_current ? 'text-emerald-400' : 'text-white'}`}>
-                      {tenure.club_name}
-                    </h3>
-                    <p className="text-[10px] text-slate-400 truncate">{tenure.league || 'League Unknown'}</p>
-                  </div>
-                </div>
-
-                {/* Trophies */}
-                {tenure.trophies.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {/* Group trophies by category */}
-                    {(() => {
-                      const grouped = {};
-                      tenure.trophies.forEach(t => {
-                        const key = t.category;
-                        if (!grouped[key]) grouped[key] = { ...t, count: 0 };
-                        grouped[key].count++;
-                      });
-                      return Object.values(grouped).map((g, gi) => (
-                        <span key={gi} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold">
-                          <TrophyImage src={g.icon} alt={g.name} className="w-3.5 h-3.5" />
-                          {g.count}
-                        </span>
-                      ));
-                    })()}
-                  </div>
-                ) : (
-                  <span className="text-[10px] text-slate-500 bg-white/5 px-2.5 py-1 rounded-lg border border-white/5">No Trophies</span>
-                )}
-              </div>
+      <section className="mb-8">
+        <SectionBanner title="Trophy wall" color="flood" />
+        {data.trophies.length ? (
+          <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {data.trophies.map((t, i) => (
+              <li key={i} className="relative flex animate-rise flex-col items-center overflow-hidden rounded-2xl bg-gradient-to-b from-flood/25 via-night-800 to-night-800 p-4 text-center ring-1 ring-flood/40" style={{ animationDelay: `${i * 70}ms` }}>
+                <div className="absolute inset-x-0 top-0 h-24 bg-[radial-gradient(closest-side,rgb(255_230_0/.35),transparent)]" aria-hidden="true" />
+                <TrophyImage src={t.icon} name={t.name} className="relative h-20 w-20" />
+                <span className="relative mt-2 font-head text-lg font-extrabold uppercase italic leading-tight">{t.name}</span>
+                <span className="relative flex items-center gap-1 text-sm text-chalk-dim"><ClubCrest club={t.club} className="h-4 w-4" />{t.season_label}</span>
+              </li>
             ))}
-          </div>
-        )}
-      </div>
+          </ul>
+        ) : <EmptyState icon="trophy" title="Silverware loading…">No trophies yet — they appear here as you win them.</EmptyState>}
+      </section>
 
-      {/* ═══════════════════ MANAGERIAL STATISTICS ═══════════════════ */}
-      <div className="bg-[#12161f]/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-xl">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <span className="material-symbols-outlined text-emerald-400">analytics</span>
-              Managerial Statistics
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">Career cumulative analysis by tenure</p>
-          </div>
-        </div>
+      <section className="mb-8">
+        <SectionBanner title="Club journey" color="club" />
+        <ol className="relative flex flex-col gap-4 md:flex-row md:overflow-x-auto md:pb-2">
+          {data.club_journey.map((t, i) => (
+            <li key={`${t.club_game_id}-${i}`} className="relative md:w-80 md:shrink-0">
+              <ThemeScope club={t.club} className="h-full">
+                <div className={`panel-club h-full p-4 ${t.is_current ? 'ring-4 ring-flood/50' : ''}`}>
+                  <div className="stripes absolute inset-x-0 top-0 h-1.5" aria-hidden="true" />
+                  <div className="flex items-center gap-3">
+                    <ClubCrest club={t.club} className="h-14 w-14" />
+                    <div className="min-w-0">
+                      <Link to={t.club ? `/clubs/${t.club.id}` : '#'} className="block truncate font-head text-2xl font-black uppercase italic leading-tight hover:underline">{t.club_name}</Link>
+                      <div className="label">{t.start_year}–{t.is_current ? 'Present' : t.end_year + 1}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                    <div><div className="num text-2xl text-pitch">{t.total_wins}</div><div className="label">W</div></div>
+                    <div><div className="num text-2xl text-flood">{t.total_draws}</div><div className="label">D</div></div>
+                    <div><div className="num text-2xl text-derby">{t.total_losses}</div><div className="label">L</div></div>
+                  </div>
+                  <div className="mt-2"><WdlBar w={t.total_wins} d={t.total_draws} l={t.total_losses} /></div>
+                  {t.trophies.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1">
+                      {t.trophies.map((tr, j) => <TrophyImage key={j} src={tr.icon} name={`${tr.name} ${tr.season_label}`} className="h-8 w-8" />)}
+                    </div>
+                  )}
+                </div>
+              </ThemeScope>
+              {i < data.club_journey.length - 1 && <Icon name="double_arrow" className="absolute -right-4 top-1/2 z-10 hidden -translate-y-1/2 text-3xl text-flood md:block" />}
+            </li>
+          ))}
+        </ol>
+      </section>
 
-        {stats_list.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-sm italic">
-            <span className="material-symbols-outlined text-3xl text-slate-600 block mb-2">table_chart</span>
-            No statistics available. Re-sync your save to populate data.
-          </div>
-        ) : (
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-2">
+        <section className="panel p-5">
+          <SectionBanner title="League finishes" color="cyan" />
+          <FinishChart seasons={seasons} />
+        </section>
+
+        <section className="panel overflow-hidden">
+          <div className="p-5 pb-0"><SectionBanner title="Season by season" color="pitch" /></div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-white/10">
-                  <th className="text-left py-3 px-3">Club</th>
-                  <th className="text-left py-3 px-2">Tenure</th>
-                  <th className="text-center py-3 px-2">M</th>
-                  <th className="text-center py-3 px-2">W</th>
-                  <th className="text-center py-3 px-2">D</th>
-                  <th className="text-center py-3 px-2">L</th>
-                  <th className="text-center py-3 px-2">GF</th>
-                  <th className="text-center py-3 px-2">GA</th>
-                  <th className="text-right py-3 px-3">Win %</th>
+            <table className="w-full min-w-[34rem] text-left">
+              <thead className="bg-black/40 font-head text-sm uppercase text-chalk-dim">
+                <tr>
+                  <th scope="col" className="px-4 py-2">Season</th>
+                  <th scope="col" className="px-2 py-2">Club</th>
+                  <th scope="col" className="px-2 py-2 text-right">P</th>
+                  <th scope="col" className="px-2 py-2">W-D-L</th>
+                  <th scope="col" className="px-2 py-2 text-right">GD</th>
+                  <th scope="col" className="px-2 py-2 text-right">Pos</th>
+                  <th scope="col" className="px-4 py-2">Big signing</th>
                 </tr>
               </thead>
               <tbody>
-                {stats_list.map((stat, idx) => (
-                  <tr 
-                    key={idx} 
-                    className={`border-b border-white/5 hover:bg-white/[0.03] transition-colors ${
-                      idx === stats_list.length - 1 ? 'bg-emerald-500/5' : ''
-                    }`}
-                  >
-                    <td className="py-3.5 px-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-black/40 border border-white/10 p-0.5 flex items-center justify-center flex-shrink-0">
-                          {stat.club_game_id ? (
-                            <img 
-                              src={getLogoUrl(stat.club_game_id)} 
-                              alt={stat.club_name}
-                              className="w-full h-full object-contain"
-                              onError={(e) => { e.target.style.display = 'none'; }}
-                            />
-                          ) : (
-                            <span className="material-symbols-outlined text-slate-500 text-sm">shield</span>
-                          )}
-                        </div>
-                        <span className="font-bold text-white truncate max-w-[150px]">{stat.club_name}</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-2 text-slate-400 font-mono text-xs">{stat.tenure}</td>
-                    <td className="py-3.5 px-2 text-center text-white font-semibold">{stat.matches}</td>
-                    <td className="py-3.5 px-2 text-center text-emerald-400 font-bold">{stat.wins}</td>
-                    <td className="py-3.5 px-2 text-center text-slate-400">{stat.draws}</td>
-                    <td className="py-3.5 px-2 text-center text-red-400">{stat.losses}</td>
-                    <td className="py-3.5 px-2 text-center text-white">{stat.goals_for}</td>
-                    <td className="py-3.5 px-2 text-center text-slate-400">{stat.goals_against}</td>
-                    <td className={`py-3.5 px-3 text-right font-bold ${
-                      stat.win_pct >= 60 ? 'text-emerald-400' : stat.win_pct >= 40 ? 'text-amber-400' : 'text-red-400'
-                    }`}>
-                      {stat.win_pct}%
-                    </td>
+                {[...seasons].reverse().map((s, i) => (
+                  <tr key={i} className="border-t border-white/5">
+                    <td className="num px-4 py-2 text-lg">{s.season_label}</td>
+                    <td className="px-2 py-2"><ClubCrest club={s.club} className="h-6 w-6" /></td>
+                    <td className="num px-2 py-2 text-right">{s.matches}</td>
+                    <td className="px-2 py-2 font-semibold"><span className="text-pitch">{s.wins}</span>-<span className="text-flood">{s.draws}</span>-<span className="text-derby">{s.losses}</span></td>
+                    <td className={`num px-2 py-2 text-right ${s.goals_for - s.goals_against >= 0 ? 'text-pitch' : 'text-derby'}`}>{s.goals_for - s.goals_against > 0 ? '+' : ''}{s.goals_for - s.goals_against}</td>
+                    <td className="num px-2 py-2 text-right text-lg">{ordinal(s.table_position)}</td>
+                    <td className="px-4 py-2 text-sm">{s.big_buy_player ? <>{s.big_buy_player} <span className="text-flood">{formatFee(s.big_buy_amount)}</span></> : '—'}</td>
                   </tr>
                 ))}
-                {/* Career Totals Row */}
-                <tr className="border-t-2 border-emerald-500/30 bg-emerald-500/5">
-                  <td className="py-3.5 px-3 font-black text-emerald-400" colSpan={2}>
-                    Career Totals
-                  </td>
-                  <td className="py-3.5 px-2 text-center text-white font-black">{career_matches}</td>
-                  <td className="py-3.5 px-2 text-center text-emerald-400 font-black">
-                    {stats_list.reduce((a, s) => a + s.wins, 0)}
-                  </td>
-                  <td className="py-3.5 px-2 text-center text-slate-400 font-bold">
-                    {stats_list.reduce((a, s) => a + s.draws, 0)}
-                  </td>
-                  <td className="py-3.5 px-2 text-center text-red-400 font-bold">
-                    {stats_list.reduce((a, s) => a + s.losses, 0)}
-                  </td>
-                  <td className="py-3.5 px-2 text-center text-white font-bold">
-                    {stats_list.reduce((a, s) => a + s.goals_for, 0)}
-                  </td>
-                  <td className="py-3.5 px-2 text-center text-slate-400 font-bold">
-                    {stats_list.reduce((a, s) => a + s.goals_against, 0)}
-                  </td>
-                  <td className={`py-3.5 px-3 text-right font-black ${
-                    career_win_pct >= 60 ? 'text-emerald-400' : career_win_pct >= 40 ? 'text-amber-400' : 'text-red-400'
-                  }`}>
-                    {career_win_pct}%
-                  </td>
-                </tr>
               </tbody>
             </table>
           </div>
-        )}
+        </section>
       </div>
-    </div>
-  );
+    </ThemeScope>
+  )
+}
+
+export default function CareerProfile() {
+  const { career } = useOutletContext()
+  const state = useApi(career ? `/careers/${career.id}/profile` : null, { select: unwrap })
+  if (!career) return <EmptyState icon="public" title="No universe selected" />
+  return <Async state={state} loadingLabel="Polishing the silverware">{(data) => <Legacy data={data} />}</Async>
 }

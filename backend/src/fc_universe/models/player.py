@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Integer, String, DateTime, ForeignKey
+from sqlalchemy import Integer, String, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from fc_universe.database import Base
@@ -16,6 +16,7 @@ class Player(Base):
     """
 
     __tablename__ = "players"
+    __table_args__ = (UniqueConstraint("career_id", "game_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     career_id: Mapped[int] = mapped_column(ForeignKey("careers.id"), nullable=False)
@@ -27,6 +28,7 @@ class Player(Base):
     secondary_positions: Mapped[str | None] = mapped_column(String(100))
     player_type: Mapped[str | None] = mapped_column(String(20), default="real")
     nationality: Mapped[str | None] = mapped_column(String(100))
+    nation_code: Mapped[str | None] = mapped_column(String(10))  # ISO 3166 (flagcdn style, e.g. "gb-eng")
     birth_year: Mapped[int | None] = mapped_column(Integer)
     overall: Mapped[int | None] = mapped_column(Integer)
     potential: Mapped[int | None] = mapped_column(Integer)

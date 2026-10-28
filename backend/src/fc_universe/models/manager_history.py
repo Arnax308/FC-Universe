@@ -23,7 +23,7 @@ class ManagerSeasonHistory(Base):
     season_id: Mapped[int | None] = mapped_column(ForeignKey("seasons.id"))
     club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
     club_game_id: Mapped[int | None] = mapped_column(Integer)
-    season_number: Mapped[int | None] = mapped_column(Integer)  # 0-indexed from career start
+    season_number: Mapped[int | None] = mapped_column(Integer)  # 1-indexed (season 1 = first season of the career)
 
     # Match stats
     matches: Mapped[int | None] = mapped_column(Integer, default=0)
@@ -37,6 +37,10 @@ class ManagerSeasonHistory(Base):
     league_trophies: Mapped[int | None] = mapped_column(Integer, default=0)
     cup_trophies: Mapped[int | None] = mapped_column(Integer, default=0)
     euro_trophies: Mapped[int | None] = mapped_column(Integer, default=0)
+    big_buy_amount: Mapped[int | None] = mapped_column(Integer)
+    big_buy_player: Mapped[str | None] = mapped_column(String(100))
+    big_sell_amount: Mapped[int | None] = mapped_column(Integer)
+    big_sell_player: Mapped[str | None] = mapped_column(String(100))
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

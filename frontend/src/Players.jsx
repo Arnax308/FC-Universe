@@ -1,157 +1,114 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
+import { apiGet, qs } from './lib/api'
+import { FutCard } from './components/broadcast'
+import { EmptyState, ErrorState, Icon, Loader, PageHeader, PillGroup } from './components/ui'
+
+const PAGE = 60
+const POSITIONS = ['', 'GK', 'CB', 'LB', 'RB', 'CDM', 'CM', 'CAM', 'LM', 'RM', 'LW', 'RW', 'ST']
 
 export default function Players() {
-  const { career, searchQuery } = useOutletContext();
-  const [players, setPlayers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [genderFilter, setGenderFilter] = useState(0); // 0 = Men, 1 = Women
-  const [myClubFilter, setMyClubFilter] = useState(true); // Default to My Squad
+  const { career } = useOutletContext()
+  const [scope, setScope] = useState('mine')
+  const [gender, setGender] = useState(0)
+  const [position, setPosition] = useState('')
+  const [search, setSearch] = useState('')
+  const [debounced, setDebounced] = useState('')
+  const [pages, setPages] = useState(1)
+  const [state, setState] = useState({ items: [], loading: true, error: null, done: false })
 
   useEffect(() => {
-    if (career && career.id) {
-      setLoading(true);
-      const url = searchQuery 
-        ? `/api/careers/${career.id}/players?limit=200&gender=${genderFilter}&my_club=${myClubFilter}&search=${encodeURIComponent(searchQuery)}`
-        : `/api/careers/${career.id}/players?limit=200&gender=${genderFilter}&my_club=${myClubFilter}`;
-        
-      // Add a slight debounce if searchQuery exists
-      const timer = setTimeout(() => {
-        fetch(url)
-          .then(res => res.json())
-          .then(data => {
-            setPlayers(data);
-            setLoading(false);
-          })
-          .catch(err => {
-            console.error("Failed to fetch players:", err);
-            setLoading(false);
-          });
-      }, searchQuery ? 300 : 0);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [career, searchQuery, genderFilter, myClubFilter]);
+    const t = setTimeout(() => setDebounced(search.trim()), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
-  const getMinifaceUrl = (gameId) => {
-    if (!gameId) return null;
-    return `/api/images/player/${gameId}?v=2`;
-  };
+  // Any filter change starts again from page 1
+  useEffect(() => { setPages(1) }, [career?.id, scope, gender, position, debounced])
 
-  if (!career) {
-    return <div className="p-8 text-on-surface">Please load a career first.</div>;
-  }
+  useEffect(() => {
+    if (!career) return
+    const ctrl = new AbortController()
+    setState((s) => ({ ...s, loading: true, error: null }))
+    const query = qs({ my_club: scope === 'mine' || null, gender, position, search: debounced, limit: PAGE * pages })
+    apiGet(`/careers/${career.id}/players${query}`, { signal: ctrl.signal })
+      .then((items) => setState({ items, loading: false, error: null, done: items.length < PAGE * pages }))
+      .catch((error) => { if (error.name !== 'AbortError') setState({ items: [], loading: false, error, done: true }) })
+    return () => ctrl.abort()
+  }, [career, scope, gender, position, debounced, pages])
+
+  if (!career) return <EmptyState icon="public" title="No universe selected">Import or pick a career first.</EmptyState>
 
   return (
-    <div className="w-full">
-      <div className="mb-6 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-headline-lg font-headline-md text-on-surface mb-2 tracking-tight">Players Database</h1>
-          <p className="text-body-lg text-on-surface-variant">
-            {myClubFilter ? `Showing squad roster for ${career.team_name || "your club"}.` : `Showing top players in the ${career.name} universe.`}
-          </p>
-        </div>
-        
-        <div className="flex flex-wrap gap-3 self-start lg:self-auto">
-          {/* Squad Toggle */}
-          <div className="flex bg-surface-container-high/40 p-1.5 rounded-full border border-white/5 backdrop-blur-md">
-            <button 
-              onClick={() => setMyClubFilter(true)}
-              className={`px-5 py-2 rounded-full text-label-caps font-label-caps transition-all duration-300 ${myClubFilter ? 'bg-secondary text-on-secondary shadow-lg font-bold' : 'text-on-surface-variant hover:text-on-surface'}`}
-            >
-              My Squad
-            </button>
-            <button 
-              onClick={() => setMyClubFilter(false)}
-              className={`px-5 py-2 rounded-full text-label-caps font-label-caps transition-all duration-300 ${!myClubFilter ? 'bg-secondary text-on-secondary shadow-lg font-bold' : 'text-on-surface-variant hover:text-on-surface'}`}
-            >
-              All Players
-            </button>
-          </div>
+    <div>
+      <PageHeader kicker={scope === 'mine' ? `${career.team_name} squad` : 'Every player in the universe'} title={scope === 'mine' ? 'The squad' : 'Player database'} accent="pitch" />
 
-          {/* Gender Tabs */}
-          <div className="flex bg-surface-container-high/40 p-1.5 rounded-full border border-white/5 backdrop-blur-md">
-            <button 
-              onClick={() => setGenderFilter(0)}
-              className={`px-6 py-2 rounded-full text-label-caps font-label-caps transition-all duration-300 ${genderFilter === 0 ? 'bg-primary text-on-primary shadow-[0_4px_12px_rgba(78,222,163,0.25)] font-bold' : 'text-on-surface-variant hover:text-on-surface'}`}
-            >
-              Men
-            </button>
-            <button 
-              onClick={() => setGenderFilter(1)}
-              className={`px-6 py-2 rounded-full text-label-caps font-label-caps transition-all duration-300 ${genderFilter === 1 ? 'bg-primary text-on-primary shadow-[0_4px_12px_rgba(78,222,163,0.25)] font-bold' : 'text-on-surface-variant hover:text-on-surface'}`}
-            >
-              Women
-            </button>
-          </div>
-        </div>
+      <div className="panel mb-6 flex flex-col gap-3 p-3 lg:flex-row lg:flex-wrap lg:items-center">
+        <PillGroup
+          label="Which players"
+          value={scope}
+          onChange={setScope}
+          options={[
+            { value: 'mine', label: 'My squad', activeClass: 'bg-club-1 text-club-ink' },
+            { value: 'all', label: 'Everyone', activeClass: 'bg-cyan text-night' },
+          ]}
+        />
+        <PillGroup
+          label="Gender"
+          value={gender}
+          onChange={setGender}
+          options={[
+            { value: 0, label: 'Men', activeClass: 'bg-flood text-night' },
+            { value: 1, label: 'Women', activeClass: 'bg-pink text-night' },
+          ]}
+        />
+        <label className="flex items-center gap-2">
+          <span className="label">Position</span>
+          <select
+            value={position}
+            onChange={(e) => setPosition(e.target.value)}
+            className="rounded-lg bg-night px-3 py-2 font-head font-bold uppercase ring-1 ring-white/15"
+          >
+            {POSITIONS.map((p) => <option key={p} value={p}>{p || 'All'}</option>)}
+          </select>
+        </label>
+        <label className="relative flex-1 lg:max-w-sm">
+          <span className="sr-only">Search players</span>
+          <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-chalk-dim" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name…"
+            className="w-full rounded-lg bg-night py-2 pl-10 pr-3 ring-1 ring-white/15 placeholder:text-chalk-dim/60"
+          />
+        </label>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="animate-pulse flex flex-col items-center">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-on-surface-variant text-label-caps font-label-caps">Loading Database...</p>
-          </div>
-        </div>
+      {state.error ? <ErrorState error={state.error} /> : state.loading && !state.items.length ? <Loader label="Scouting" /> : state.items.length === 0 ? (
+        <EmptyState icon="person_search" title="No players found">Try another position, name or switch to “Everyone”.</EmptyState>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {players.map(player => (
-            <Link to={`/players/${player.id}`} key={player.id} className="block group">
-              <div className="bg-surface-container/60 backdrop-blur-2xl border border-white/5 rounded-2xl p-4 flex items-center gap-4 hover:bg-white/5 transition-all cursor-pointer h-full border border-transparent group-hover:border-primary/30 group-hover:shadow-[0_0_15px_rgba(78,222,163,0.1)]">
-                <div className="relative w-16 h-16 flex-shrink-0">
-                  <img
-                    src={getMinifaceUrl(player.game_id)}
-                    alt={player.known_name || player.last_name}
-                    className="w-16 h-16 object-cover rounded-full bg-surface-container/50 border border-white/10"
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.style.display = 'none';
-                      e.target.nextElementSibling.style.display = 'flex';
-                    }}
-                  />
-                  <div className="hidden w-16 h-16 rounded-full bg-surface-container/50 border border-white/10 items-center justify-center text-on-surface-variant absolute inset-0 z-0">
-                    <span className="material-symbols-outlined text-3xl">person</span>
-                  </div>
-                  {player.overall && (
-                    <div className="absolute -bottom-1 -right-1 z-10 bg-primary text-on-primary text-xs font-bold px-1.5 py-0.5 rounded shadow-lg border border-primary-fixed-dim pointer-events-none">
-                      {player.overall}
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-on-surface font-headline-md text-body-lg truncate">
-                        {player.known_name || `${player.first_name || ''} ${player.last_name || ''}`}
-                      </h3>
-                      {player.player_type === 'youth' && (
-                        <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/20 whitespace-nowrap self-center">
-                          Youth Academy
-                        </span>
-                      )}
-                      {player.player_type === 'regen' && (
-                        <span className="bg-purple-500/10 text-purple-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-purple-500/20 whitespace-nowrap self-center">
-                          Regen
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-on-surface-variant text-label-caps font-label-caps mt-0.5 items-center">
-                      {player.position && <span className="bg-white/5 px-2 py-0.5 rounded text-[10px] font-bold text-on-surface">{player.position}</span>}
-                      {player.secondary_positions && <span className="text-[10px] text-on-surface-variant/80">({player.secondary_positions})</span>}
-                      {player.potential && <span className="text-tertiary font-bold">POT {player.potential}</span>}
-                      {player.club_name && <span className="text-secondary font-bold">• {player.club_name}</span>}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-on-surface-variant group-hover:text-primary transition-colors">
-                  <span className="material-symbols-outlined">chevron_right</span>
-                </div>
+        <>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+            {state.items.map((p, i) => (
+              <div key={p.id} className="animate-rise" style={{ animationDelay: `${Math.min(i % PAGE, 20) * 25}ms` }}>
+                <FutCard player={p} to={`/players/${p.id}`} />
               </div>
-            </Link>
-          ))}
-        </div>
+            ))}
+          </div>
+          {!state.done && (
+            <div className="mt-8 flex justify-center">
+              <button
+                type="button"
+                disabled={state.loading}
+                onClick={() => setPages((n) => n + 1)}
+                className="skew-plate bg-flood px-8 py-3 text-night disabled:opacity-60"
+              >
+                <span className="unskew block font-head text-xl font-black uppercase italic">{state.loading ? 'Loading…' : 'Load more'}</span>
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
-  );
+  )
 }

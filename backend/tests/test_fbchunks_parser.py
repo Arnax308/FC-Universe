@@ -4,7 +4,8 @@ from fc_universe.parser.models import SaveHeaderInfo
 
 def test_fc_metadata_exposes_the_team_and_manager_id_offsets():
     assert RANGE_LOWS["lyxL"]["mCXg"] == 1
-    assert RANGE_LOWS["mPrV"]["NTyS"] == 1
+    # apply_team_offset_overrides() shifts the user club id down by 2; real saves resolve correctly with it
+    assert RANGE_LOWS["mPrV"]["NTyS"] == -1
 
 def test_manager_club_is_resolved_from_normalized_ids():
     header = SaveHeaderInfo(career_name="Career")

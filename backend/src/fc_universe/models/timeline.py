@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy import Integer, String, Text, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from fc_universe.database import Base
@@ -16,6 +16,7 @@ class TimelineEvent(Base):
     """
 
     __tablename__ = "timeline_events"
+    __table_args__ = (UniqueConstraint("career_id", "event_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     career_id: Mapped[int] = mapped_column(ForeignKey("careers.id"), nullable=False)
@@ -25,7 +26,9 @@ class TimelineEvent(Base):
     related_player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"))
     related_club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
     related_competition_id: Mapped[int | None] = mapped_column(ForeignKey("competitions.id"))
-    gender: Mapped[int] = mapped_column(Integer, default=0) # 0: Men, 1: Women
+    gender: Mapped[int] = mapped_column(Integer, default=0) # 0: Men, 1: Women, 2: Both
+    # Stable identity (type + entities + season) so re-imports never duplicate or lose events
+    event_key: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relationships

@@ -1,9 +1,13 @@
 """Database engine and session management."""
 
-from sqlalchemy import create_engine, event
+import logging
+
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from fc_universe.config import settings
+
+logger = logging.getLogger(__name__)
 
 connect_args = {}
 if "sqlite" in settings.database_url:
@@ -15,7 +19,7 @@ if "sqlite" in settings.database_url:
 engine = create_engine(
     settings.database_url,
     connect_args=connect_args,
-    echo=settings.debug,
+    echo=settings.sql_echo,
 )
 
 # Enable WAL mode and optimize performance for SQLite
@@ -45,41 +49,22 @@ def get_db():
 
 
 def create_tables():
-    """Create all tables in the database and run lightweight migrations."""
-    Base.metadata.create_all(bind=engine)
-    
-    # Automatic Migration: Add 'gender' column to 'timeline_events' if missing
-    import sqlite3
-    from urllib.parse import urlparse
-    
-    db_url = settings.database_url
-    if db_url.startswith("sqlite:///"):
-        db_path = db_url.replace("sqlite:///", "")
-        try:
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(timeline_events)")
-            cols = [col[1] for col in cursor.fetchall()]
-            if cols and "gender" not in cols:
-                cursor.execute("ALTER TABLE timeline_events ADD COLUMN gender INTEGER DEFAULT 0")
-                conn.commit()
-                print("Database migration: Added 'gender' column to 'timeline_events' table successfully.")
-            
-            cursor.execute("PRAGMA table_info(players)")
-            p_cols = [col[1] for col in cursor.fetchall()]
-            if p_cols and "player_type" not in p_cols:
-                cursor.execute("ALTER TABLE players ADD COLUMN player_type VARCHAR(20) DEFAULT 'real'")
-                cursor.execute("UPDATE players SET player_type = 'youth' WHERE game_id >= 280000")
-                conn.commit()
-                print("Database migration: Added 'player_type' column to 'players' table successfully.")
+    """Create missing tables, then add any model columns that older databases lack.
 
-            cursor.execute("PRAGMA table_info(manager_season_history)")
-            m_cols = [col[1] for col in cursor.fetchall()]
-            if m_cols:
-                for new_col in ["points", "table_position", "league_trophies", "cup_trophies", "euro_trophies"]:
-                    if new_col not in m_cols:
-                        cursor.execute(f"ALTER TABLE manager_season_history ADD COLUMN {new_col} INTEGER DEFAULT 0")
-                conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"Migration warning: Failed to check/add columns: {e}")
+    SQLite can't alter constraints, so only plain nullable columns are added here;
+    unique constraints apply to databases created from scratch.
+    """
+    import fc_universe.models  # noqa: F401  (register every model on Base.metadata)
+
+    Base.metadata.create_all(bind=engine)
+
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                col_type = column.type.compile(dialect=engine.dialect)
+                conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{column.name}" {col_type}'))
+                logger.info("Database migration: added %s.%s", table.name, column.name)

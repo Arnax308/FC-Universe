@@ -52,8 +52,8 @@ def auto_import_latest_save():
                 logger.info(f"Auto-import successful for career ID={career.id} ('{career.name}')")
             finally:
                 db.close()
-        except Exception as e:
-            logger.warning(f"Auto-import on startup encountered warning: {e}")
+        except Exception:
+            logger.exception("Auto-import on startup failed")
 
     thread = threading.Thread(target=_bg_import, daemon=True)
     thread.start()

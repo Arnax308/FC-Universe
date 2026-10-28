@@ -19,6 +19,9 @@ class ClubBase(BaseSchema):
     international_prestige: int | None = None
     foundation_year: int | None = None
     rival_team_id: int | None = None
+    color_primary: str | None = None
+    color_secondary: str | None = None
+    color_tertiary: str | None = None
 
 
 class ClubOut(ClubBase):
@@ -27,15 +30,21 @@ class ClubOut(ClubBase):
     created_at: datetime
     updated_at: datetime
     manager_name: str | None = None
+    is_user_club: bool | None = None
     stadium_name: str | None = None
     squad_count: int | None = 0
     top_player_name: str | None = None
     top_player_overall: int | None = None
+    top_player_id: int | None = None
+    top_player_game_id: int | None = None
     transfers_count: int | None = 0
-    total_spent: int | None = 0
-    total_received: int | None = 0
-    net_spend: int | None = 0
+    total_spent: float | None = 0
+    total_received: float | None = 0
+    net_spend: float | None = 0
     historical_trophies: list[dict] | None = None
     universe_trophies: list[dict] | None = None
-
-
+    league_position: int | None = None
+    previous_position: int | None = None
+    competition_id: int | None = None
+    rival: dict | None = None
+    season_label: str | None = None

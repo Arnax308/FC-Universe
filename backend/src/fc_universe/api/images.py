@@ -1,7 +1,10 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response, FileResponse
+import re
+import time
 from pathlib import Path
+
 import httpx
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse, Response
 
 router = APIRouter(tags=["images"])
 
@@ -14,93 +17,65 @@ client = httpx.AsyncClient(transport=transport, timeout=10.0)
 CACHE_DIR = Path(__file__).parent.parent / "data" / "image_cache"
 PLAYER_CACHE = CACHE_DIR / "players"
 CLUB_CACHE = CACHE_DIR / "clubs"
-PLAYER_CACHE.mkdir(parents=True, exist_ok=True)
-CLUB_CACHE.mkdir(parents=True, exist_ok=True)
+TROPHY_CACHE = CACHE_DIR / "trophies"
+for _d in (PLAYER_CACHE, CLUB_CACHE, TROPHY_CACHE):
+    _d.mkdir(parents=True, exist_ok=True)
+TROPHY_ASSETS = Path(__file__).resolve().parents[4] / "frontend" / "public" / "assets" / "trophies"
+
+CACHE_HEADERS = {"Cache-Control": "public, max-age=604800"}  # 7 days
+# Remember CDN misses so every render doesn't re-hit two CDNs for images that don't exist.
+MISS_TTL_SECONDS = 24 * 3600
+_misses: dict[Path, float] = {}
 
 
 async def _fetch_and_cache(cache_path: Path, urls: list[str]) -> Response:
-    """Try fetching from disk cache first, then CDN URLs in order. Cache on success."""
-    # 1. Check disk cache
+    """Serve from disk cache, else try each CDN URL in order and cache the first image."""
     if cache_path.exists():
-        return FileResponse(
-            path=str(cache_path),
-            media_type="image/png",
-            headers={"Cache-Control": "public, max-age=604800"}  # 7 days
-        )
-    
-    # 2. Try each CDN URL in order
+        return FileResponse(path=str(cache_path), media_type="image/png", headers=CACHE_HEADERS)
+
+    missed_at = _misses.get(cache_path)
+    if missed_at and time.time() - missed_at < MISS_TTL_SECONDS:
+        raise HTTPException(status_code=404, detail="Image not found")
+
     for url in urls:
         try:
-            response = await client.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-            if response.status_code == 200:
-                # Save to disk cache
-                cache_path.write_bytes(response.content)
-                return Response(
-                    content=response.content,
-                    media_type="image/png",
-                    headers={"Cache-Control": "public, max-age=604800"}
-                )
+            response = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
         except Exception:
             continue
-    
+        if response.status_code == 200 and response.headers.get("content-type", "").startswith("image/"):
+            cache_path.write_bytes(response.content)
+            return Response(content=response.content, media_type="image/png", headers=CACHE_HEADERS)
+
+    _misses[cache_path] = time.time()
+    # A 404 (not a placeholder image) lets the frontend draw its own styled fallback.
     raise HTTPException(status_code=404, detail="Image not found")
-
-
-DEFAULT_PLAYER_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="#64748b"><circle cx="12" cy="8" r="4"/><path d="M12 14c-4.42 0-8 2.69-8 6v1h16v-1c0-3.31-3.58-6-8-6z"/></svg>"""
-DEFAULT_CLUB_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="#64748b"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-5.45 9-12V5l-9-4z"/></svg>"""
 
 
 @router.get("/images/player/{game_id}")
 async def get_player_image(game_id: int):
-    cache_path = PLAYER_CACHE / f"{game_id}.png"
-    
-    # Build fallback URL list
     padded = str(game_id).zfill(6)
     urls = [
+        f"https://cdn.sofifa.net/players/{padded[:3]}/{padded[3:6]}/26_120.png",
         f"https://cdn.futwiz.com/assets/img/fc25/faces/{game_id}.png",
         f"https://cdn.sofifa.net/players/{padded[:3]}/{padded[3:6]}/25_120.png",
     ]
-    
-    try:
-        return await _fetch_and_cache(cache_path, urls)
-    except Exception:
-        return Response(content=DEFAULT_PLAYER_SVG, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
+    return await _fetch_and_cache(PLAYER_CACHE / f"{game_id}.png", urls)
 
 
 @router.get("/images/club/{team_id}")
 async def get_club_image(team_id: int):
-    cache_path = CLUB_CACHE / f"{team_id}.png"
-    
     urls = [
         f"https://cdn.futwiz.com/assets/img/fc25/badges/{team_id}.png",
         f"https://cdn.sofifa.net/meta/team/{team_id}/120.png",
     ]
-    
-    try:
-        return await _fetch_and_cache(cache_path, urls)
-    except Exception:
-        return Response(content=DEFAULT_CLUB_SVG, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
-
-
-TROPHY_CACHE = CACHE_DIR / "trophies"
-TROPHY_CACHE.mkdir(parents=True, exist_ok=True)
+    return await _fetch_and_cache(CLUB_CACHE / f"{team_id}.png", urls)
 
 
 @router.get("/images/trophy/{name}")
 async def get_trophy_image(name: str):
-    cache_path = TROPHY_CACHE / f"{name}.png"
-    if cache_path.exists():
-        return FileResponse(
-            path=str(cache_path),
-            media_type="image/png",
-            headers={"Cache-Control": "public, max-age=604800"}
-        )
-    asset_path = Path(__file__).parent.parent.parent.parent / "frontend" / "public" / "assets" / "trophies" / f"{name}.png"
-    if asset_path.exists():
-        return FileResponse(
-            path=str(asset_path),
-            media_type="image/png",
-            headers={"Cache-Control": "public, max-age=604800"}
-        )
+    if not re.fullmatch(r"[a-z0-9_]+", name):
+        raise HTTPException(status_code=404, detail="Trophy image not found")
+    for path in (TROPHY_CACHE / f"{name}.png", TROPHY_ASSETS / f"{name}.png"):
+        if path.exists():
+            return FileResponse(path=str(path), media_type="image/png", headers=CACHE_HEADERS)
     raise HTTPException(status_code=404, detail="Trophy image not found")
-

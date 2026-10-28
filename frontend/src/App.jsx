@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import Layout from './Layout'
 import Careers from './Careers'
 import Players from './Players'
@@ -8,6 +8,15 @@ import ClubProfile from './ClubProfile'
 import Transfers from './Transfers'
 import Timeline from './Timeline'
 import CareerProfile from './CareerProfile'
+import { EmptyState } from './components/ui'
+
+function NotFound() {
+  return (
+    <EmptyState icon="sports" title="Offside! Page not found">
+      <Link to="/" className="font-semibold text-flood underline">Back to kick-off</Link>
+    </EmptyState>
+  )
+}
 
 function App() {
   return (
@@ -23,7 +32,7 @@ function App() {
           <Route path="transfers" element={<Transfers />} />
           <Route path="timeline" element={<Timeline />} />
           <Route path="career" element={<CareerProfile />} />
-          <Route path="*" element={<div className="p-8 text-on-surface">Screen not found.</div>} />
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
     </BrowserRouter>

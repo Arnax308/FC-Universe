@@ -13,6 +13,7 @@ class PlayerBase(BaseSchema):
     secondary_positions: str | None = None
     player_type: str | None = "real"
     nationality: str | None = None
+    nation_code: str | None = None
     birth_year: int | None = None
     overall: int | None = None
     potential: int | None = None
@@ -70,5 +71,6 @@ class PlayerOut(PlayerBase):
     is_retired: bool | None = False
     created_at: datetime
     updated_at: datetime
-    trophies: list[dict] | None = None
+    club: dict | None = None
+    age: int | None = None
 

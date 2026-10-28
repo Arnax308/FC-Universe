@@ -17,9 +17,10 @@ class CareerOut(CareerBase):
     created_at: datetime
     updated_at: datetime
     current_season: str | None = None
+    start_season: str | None = None
+    seasons_count: int | None = 0
     duration_years: str | None = None
     trophies_count: int | None = 0
-    trophies_summary: list[dict] | None = None
+    team: dict | None = None
     is_last_played: bool | None = False
     model_config = ConfigDict(from_attributes=True)
-

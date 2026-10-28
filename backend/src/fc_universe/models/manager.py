@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, Integer
+from sqlalchemy import String, DateTime, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from fc_universe.database import Base
@@ -12,6 +12,7 @@ class Manager(Base):
     """Represents a football manager."""
 
     __tablename__ = "managers"
+    __table_args__ = (UniqueConstraint("career_id", "game_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     career_id: Mapped[int] = mapped_column(ForeignKey("careers.id"), nullable=False)

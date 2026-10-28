@@ -21,5 +21,7 @@ class TimelineEventOut(TimelineEventBase):
     
     # Extra helper fields for frontend convenience
     season_year: int | None = None
+    related_player_game_id: int | None = None
+    club: dict | None = None
     
     model_config = ConfigDict(from_attributes=True)

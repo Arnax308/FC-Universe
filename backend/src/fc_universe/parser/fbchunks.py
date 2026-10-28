@@ -155,10 +155,9 @@ class FbChunksParser(SaveParser):
         team_name = valid_strings[1] if len(valid_strings) > 1 else "Unknown Club"
         manager_name = valid_strings[2] if len(valid_strings) > 2 else "Unknown Manager"
 
-        # Generate a stable identifier from career_name + manager_name
-        # That way, different save files for the same career Mode update the same Career in DB
-        stable_str = f"{career_name}_{manager_name}".strip().lower()
-        save_id = hashlib.md5(stable_str.encode()).hexdigest()
+        # EA keeps one file per career slot (CmMgrC<created-timestamp>) and overwrites it on
+        # every save, so the filename stem is the stable identity of a career.
+        save_id = Path(file_path).stem
 
         return SaveHeaderInfo(
             career_name=career_name,
