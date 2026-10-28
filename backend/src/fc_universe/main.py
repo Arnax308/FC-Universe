@@ -6,6 +6,8 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,16 +16,26 @@ from fc_universe.database import create_tables
 from fc_universe.api import health, careers, players, clubs, images, transfers, timeline, career_profile
 
 
-def auto_import_latest_save():
-    """On app launch, automatically find and import the newest EA FC save file in a background thread."""
+# Show the app's own INFO logs (e.g. save syncing) next to uvicorn's
+_handler = logging.StreamHandler()
+_handler.setFormatter(logging.Formatter("%(levelname)s:     [fc_universe] %(message)s"))
+_app_logger = logging.getLogger("fc_universe")
+if not _app_logger.handlers:
+    _app_logger.addHandler(_handler)
+    _app_logger.setLevel(logging.INFO)
+
+
+def auto_sync_saves():
+    """On app launch, import (in a background thread) every career save that is new or has
+    been saved again since its last import. Imports are idempotent, so this is always safe."""
     import threading
-    import logging
 
     def _bg_import():
         logger = logging.getLogger("fc_universe.auto_import")
         try:
-            from pathlib import Path
+            from datetime import datetime
             from fc_universe.database import SessionLocal
+            from fc_universe.models import Career
             from fc_universe.parser.fbchunks import FbChunksParser, apply_team_offset_overrides
             from fc_universe.services.import_service import ImportService
 
@@ -32,26 +44,24 @@ def auto_import_latest_save():
                 logger.info(f"Save directory not found: {save_dir}")
                 return
 
-            save_files = list(save_dir.glob("CmMgrC*"))
-            if not save_files:
-                logger.info("No CmMgrC save files found in save directory.")
-                return
-
-            save_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            latest_file = save_files[0]
-            logger.info(f"Auto-importing latest save file on app launch: {latest_file.name}")
-
             apply_team_offset_overrides(settings.team_id_offset)
             parser = FbChunksParser()
-            parsed_data = parser.parse(latest_file)
-
-            db = SessionLocal()
-            try:
-                import_service = ImportService(db)
-                career = import_service.import_save(parsed_data)
-                logger.info(f"Auto-import successful for career ID={career.id} ('{career.name}')")
-            finally:
-                db.close()
+            # Oldest first, so the most recently played career ends up first in the list
+            for save_file in sorted(save_dir.glob("CmMgrC*"), key=lambda p: p.stat().st_mtime):
+                db = SessionLocal()
+                try:
+                    header = parser.read_header(save_file)
+                    career = db.query(Career).filter(Career.save_identifier == header.save_identifier).first()
+                    modified = datetime.utcfromtimestamp(save_file.stat().st_mtime)
+                    if career and career.updated_at and career.updated_at >= modified:
+                        continue
+                    logger.info(f"Syncing save {save_file.name} ({header.career_name})...")
+                    career = ImportService(db).import_save(parser.parse(save_file))
+                    logger.info(f"Synced career ID={career.id} ('{career.name}')")
+                except Exception:
+                    logger.exception(f"Auto-import of {save_file.name} failed")
+                finally:
+                    db.close()
         except Exception:
             logger.exception("Auto-import on startup failed")
 
@@ -79,8 +89,8 @@ def create_app() -> FastAPI:
     # Initialize database
     create_tables()
 
-    # Automatically ingest newest save file data on app launch
-    auto_import_latest_save()
+    # Bring every career up to date with its save file
+    auto_sync_saves()
 
     # Include routers
     app.include_router(health.router, prefix=settings.api_prefix)

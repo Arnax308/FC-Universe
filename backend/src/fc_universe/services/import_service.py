@@ -13,7 +13,7 @@ import logging
 import re
 import threading
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -195,6 +195,7 @@ class ImportService:
         else:
             logger.info(f"Updating existing career: {career.name}")
             career.save_file_path = header.file_path
+            career.updated_at = datetime.utcnow()  # marks when this save was last synced
         self.career = career
         self._event_keys = {
             k for (k,) in self.db.query(TimelineEvent.event_key).filter(
