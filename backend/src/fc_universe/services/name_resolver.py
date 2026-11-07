@@ -11,6 +11,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+GENERATED_ID_START = 280000
+
 
 class NameResolver:
     def __init__(self, cache_file: str = "player_names_cache.csv"):
@@ -98,6 +100,48 @@ class NameResolver:
         except Exception as e:
             logger.debug(f"Failed to fetch {game_id} from fut.gg: {e}")
         return None
+
+    def resolve_player(self, game_id: int, first_id: int, last_id: int, common_id: int, dc_names: dict,
+                       edited: dict | None = None, dictionary=None) -> str:
+        """Display name for a player in a career save.
+
+        1. editedplayernames (academy graduates and renamed players carry their name here)
+        2. real players: master list / cache
+        3. generated players: DC names (ids 44000+) or FC 26's name dictionary
+        """
+        def clean(s):
+            s = (s or "").strip()
+            return s if s and s.isprintable() and "�" not in s else ""
+
+        def from_ids(name_id):
+            if not name_id:
+                return "", False
+            if dc_names.get(name_id):
+                return dc_names[name_id], True
+            if dictionary is not None:
+                name, certain = dictionary.lookup(name_id)
+                return name or "", certain
+            return self.base_name_map.get(name_id, ""), False
+
+        if edited:
+            # The player's name ids may be stale here, so never fall back to them.
+            common, last = clean(edited.get("xnfZ")), clean(edited.get("rREd"))
+            first = clean(edited.get("HdeP"))
+            if first.startswith("…"):  # lost its first two bytes in the save
+                first = (dictionary.complete(first[1:], dictionary.first_counts) if dictionary else None) or ""
+            name = common or f"{first} {last}".strip()
+            if name:
+                return name
+
+        if game_id < GENERATED_ID_START:
+            return self.resolve_name(game_id, first_id, last_id, common_id, dc_names)
+
+        common = from_ids(common_id)[0]
+        if common:
+            return common
+        first, last = from_ids(first_id)[0], from_ids(last_id)[0]
+        name = f"{first} {last}".strip()
+        return re.sub(r"([a-z])([A-Z])", r"\1 \2", name) if name else f"Youth Player #{game_id}"
 
     def resolve_name(self, game_id: int, first_id: int, last_id: int, common_id: int, dc_names: dict,
                      allow_network: bool = False) -> str:

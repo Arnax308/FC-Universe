@@ -62,3 +62,26 @@ def test_numbers_that_continue_this_season_stay_put():
     assert CareerStatsMixin._pick_season(p, True, True, True, False, biggest=18) == (2030, True)
     # a restarted competition doesn't continue last season's numbers, so it's this season afresh
     assert CareerStatsMixin._pick_season(p, False, False, True, False, biggest=3) == (2030, False)
+
+
+def test_clobbered_first_names_keep_their_tail():
+    from fc_universe.parser.fbchunks import _repair_clobbered
+    raw = b"\x07\x00" + "istóbal".encode() + b"\x00" * 10
+    assert _repair_clobbered(raw, "\x07") == "\u2026istóbal"
+    assert _repair_clobbered(b"Shane\x00\x00\x00", "Shane") == "Shane"
+
+
+def test_name_dictionary_lines_up_between_known_names(monkeypatch, tmp_path):
+    from fc_universe.services import name_dictionary as nd
+    old = tmp_path / "old.csv"
+    # old list has an extra "Bart" that FC 26 dropped
+    old.write_text("nameid,name\n1,Adams\n2,Bart\n3,Carter\n4,Dawson\n5,Evans\n6,Ford\n", encoding="utf-8")
+    monkeypatch.setattr(nd, "OLD_NAMES", old)
+    monkeypatch.setattr(nd, "EXACT_NAMES", tmp_path / "missing.csv")
+    players = [{"ykFq": 1, "tHlO": 0, "QCfa": 0, "HDYx": 10}, {"ykFq": 2, "tHlO": 0, "QCfa": 0, "HDYx": 12}]
+    d = nd.NameDictionary(players, {1: "Adams", 2: "Evans"})
+    # FC 26: 10 Adams, 11 Carter, 12 Evans ... Adams/Evans are pinned by real players
+    assert d.lookup(10) == ("Adams", True)
+    assert d.lookup(12) == ("Evans", True)
+    assert d.lookup(11)[0] in ("Bart", "Carter", "Dawson")
+    assert d.complete("ans", {}) == "Evans"

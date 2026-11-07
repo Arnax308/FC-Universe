@@ -214,6 +214,10 @@ class ImportService(CareerStatsMixin):
 
         for c_id, (c_name, c_type) in CUP_COMPETITIONS.items():
             upsert_comp(c_id, c_name, c_type)
+        # National-team groupings sit in the leagues table too; they have no real table.
+        self.international_leagues = {
+            lg.get("aQrQ") for lg in raw.get("onMQ", []) if lg.get("JGZu") == 1  # isinternationalleague
+        }
         for league in raw.get("onMQ", []):
             l_id, l_name = league.get("aQrQ"), league.get("HEQX")  # leagueid, leaguename
             if l_id is not None and l_name:
@@ -489,6 +493,7 @@ class ImportService(CareerStatsMixin):
     # ------------------------------------------------------------------ players
 
     def _import_players(self, raw, clubs, club_game_id_by_db_id, active_season, is_first_import, ledger=()):
+        from fc_universe.services.name_dictionary import NameDictionary
         from fc_universe.services.name_resolver import NameResolver
 
         career = self.career
@@ -499,6 +504,8 @@ class ImportService(CareerStatsMixin):
         name_resolver = NameResolver()
 
         dc_names = {r.get("FuiB"): r.get("vIys") for r in raw.get("bneD", []) if r.get("FuiB") is not None and r.get("vIys")}
+        edited = {r.get("ykFq"): r for r in raw.get("nQVU", []) if r.get("ykFq") is not None}  # editedplayernames
+        dictionary = NameDictionary(raw_players, name_resolver.master_players)
 
         # National teams (teamnationlinks) so club links win over national-team links
         national_team_ids = {r.get("mCXg") for r in raw.get("CxJp", []) if r.get("mCXg") is not None}
@@ -526,6 +533,7 @@ class ImportService(CareerStatsMixin):
         players = {p.game_id: p for p in self.db.query(Player).filter(Player.career_id == career.id)}
         user_club = clubs.get(career.team_id)
         pending_transfers = []
+        renamed = {}  # player id -> (old name, new name)
 
         for p in raw_players:
             game_id = p.get("ykFq")  # playerid
@@ -533,10 +541,14 @@ class ImportService(CareerStatsMixin):
                 continue
             existing = players.get(game_id)
 
+            # Real players keep a name once found; generated players and renamed ones are
+            # re-read every sync (their names only live in this save).
             name_str = existing.known_name if existing else None
-            if not name_str or name_str.startswith(("Player #", "Youth Player #")):
-                name_str = name_resolver.resolve_name(
-                    game_id, p.get("tHlO"), p.get("QCfa"), p.get("HDYx"), dc_names
+            edit = edited.get(game_id)
+            if (edit or game_id >= GENERATED_PLAYER_ID_START or not name_str
+                    or name_str.startswith(("Player #", "Youth Player #"))):
+                name_str = name_resolver.resolve_player(
+                    game_id, p.get("tHlO"), p.get("QCfa"), p.get("HDYx"), dc_names, edit, dictionary,
                 ) or (f"Youth Player #{game_id}" if game_id >= GENERATED_PLAYER_ID_START else f"Player #{game_id}")
 
             link = self.player_links.get(game_id)
@@ -591,6 +603,8 @@ class ImportService(CareerStatsMixin):
                 **{attr: p.get(code) for attr, code in PLAYER_ATTRIBUTES.items()},
             )
             if existing:
+                if existing.known_name and existing.known_name != name_str:
+                    renamed[existing.id] = (existing.known_name, name_str)
                 for k, v in data.items():
                     setattr(existing, k, v)
             else:
@@ -598,6 +612,14 @@ class ImportService(CareerStatsMixin):
                 self.db.add(player)
                 players[game_id] = player
         self.db.flush()
+
+        # Stories written under a player's old (misread) name get the corrected one
+        if renamed:
+            for e in self.db.query(TimelineEvent).filter(
+                TimelineEvent.career_id == career.id, TimelineEvent.related_player_id.in_(renamed)
+            ):
+                old_name, new_name = renamed[e.related_player_id]
+                e.description = e.description.replace(old_name, new_name)
 
         # Transfers + timeline
         for game_id, from_id, to_id, t_type, fee in pending_transfers:
@@ -649,6 +671,8 @@ class ImportService(CareerStatsMixin):
         seen = set()
         for s in raw_standings:
             club = clubs.get(s.get("mCXg"))
+            if s.get("aQrQ") in self.international_leagues:
+                continue
             if not club or club.id in seen or s.get("aQrQ") not in comps:
                 continue  # first standings row per club wins (matches club.league)
             seen.add(club.id)
@@ -662,6 +686,11 @@ class ImportService(CareerStatsMixin):
 
         def losses(s):
             return (s.get("oQGq") or 0) + (s.get("QMes") or 0)
+
+        intl_ids = [comps[lid].id for lid in self.international_leagues if lid in comps]
+        if intl_ids:  # stored by older versions
+            self.db.query(ClubSeasonStats).filter(ClubSeasonStats.competition_id.in_(intl_ids)).delete(
+                synchronize_session=False)
 
         reset = {lid for lid, rows in by_league.items()
                  if not any((s.get("Yyym") or 0) or wins(s) or draws(s) or losses(s) for s in rows)}

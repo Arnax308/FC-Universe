@@ -125,6 +125,23 @@ def _fixed_string(data: bytes, offset: int, length: int) -> str:
     return text if text.isprintable() else ""
 
 
+CLOBBERED_PREFIX = "…"  # "…": the string lost its first two bytes
+
+
+def _repair_clobbered(raw: bytes, value: str) -> str:
+    """Some tables (editedplayernames) have their first two record bytes overwritten, which
+    eats the start of a string stored at offset 0: "Cristóbal" reads as 07 00 "istóbal".
+    Return the surviving tail marked with CLOBBERED_PREFIX so it can be completed later."""
+    if len(raw) < 3 or (value.isprintable() and "�" not in value):
+        return value
+    tail = raw[2:].split(b"\x00", 1)[0]
+    try:
+        text = tail.decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
+    return CLOBBERED_PREFIX + text if text.isprintable() else ""
+
+
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
@@ -340,7 +357,10 @@ class FbChunksParser(SaveParser):
                         current_bit_pos = 0
                         reader.position = current_position + (sorted_bit_offsets[field_idx] >> 3)
                         str_len = sorted_bit_depths[field_idx] >> 3
+                        start = reader.position
                         value = reader.read_null_terminated_string(str_len)
+                        if sorted_bit_offsets[field_idx] == 0:
+                            value = _repair_clobbered(reader.data[start:start + str_len], value)
 
                     elif field_type == 3:  # Integer (bit-packed)
                         val = 0

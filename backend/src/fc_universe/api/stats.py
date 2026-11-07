@@ -201,3 +201,60 @@ def club_seasons(career_id: int, club_id: int, db: Session = Depends(get_db)):
             "squad": squad, "trophies": trophies.get(year, []),
         })
     return {"club": club_brief(club), "seasons": out}
+
+
+@router.get("/careers/{career_id}/tables")
+def league_tables(career_id: int, season: int | None = None, competition_id: int | None = None,
+                  db: Session = Depends(get_db)):
+    """Every league table on file. Without ``competition_id`` the user's league (or the first
+    one) is shown; tables captured only after EA's summer reset carry final positions alone."""
+    seasons = _seasons(db, career_id)
+    have = defaultdict(set)  # year -> competition ids with a table
+    for sid, cid in db.query(ClubSeasonStats.season_id, ClubSeasonStats.competition_id).filter(
+            ClubSeasonStats.season_id.in_(seasons), ClubSeasonStats.competition_id.isnot(None)).distinct():
+        have[seasons[sid]].add(cid)
+    years = sorted(have, reverse=True)
+    if not years:
+        return {"seasons": [], "season": None, "competitions": [], "rows": [], "final_positions_only": False}
+    if season not in have:
+        from fc_universe.api.common import user_club
+        from fc_universe.models import Career
+        mine = user_club(db, db.get(Career, career_id))
+        own_years = {seasons[sid] for (sid,) in db.query(ClubSeasonStats.season_id).filter(
+            ClubSeasonStats.club_id == (mine.id if mine else -1), ClubSeasonStats.season_id.in_(seasons))}
+        season = max(own_years & set(years), default=years[0])
+    comps = {c.id: c for c in db.query(Competition).filter(Competition.id.in_(have[season]))
+             if not any(k in (c.name or "").lower() for k in ("rest of world", "free agents"))}
+    competitions = sorted(
+        ({"id": c.id, "name": c.name, "game_id": c.game_id} for c in comps.values()),
+        key=lambda c: (c["game_id"] not in {13, 53, 19, 31, 16}, c["name"]),
+    )
+    if competition_id not in comps:
+        from fc_universe.api.common import user_club
+        from fc_universe.models import Career
+        mine = user_club(db, db.get(Career, career_id))
+        own = db.query(ClubSeasonStats.competition_id).join(Season, Season.id == ClubSeasonStats.season_id).filter(
+            ClubSeasonStats.club_id == (mine.id if mine else -1), Season.year == season).scalar()
+        competition_id = own if own in comps else competitions[0]["id"]
+    season_id = next(sid for sid, y in seasons.items() if y == season)
+    rows = (
+        db.query(ClubSeasonStats, Club)
+        .join(Club, Club.id == ClubSeasonStats.club_id)
+        .filter(ClubSeasonStats.season_id == season_id, ClubSeasonStats.competition_id == competition_id)
+        .order_by(ClubSeasonStats.position.asc())
+        .all()
+    )
+    return {
+        "seasons": years,
+        "season": season,
+        "season_label": season_label(season),
+        "competitions": competitions,
+        "competition_id": competition_id,
+        "final_positions_only": not any((s.matches_played or 0) for s, _ in rows),
+        "rows": [
+            {"position": s.position, "club": club_brief(c), "played": s.matches_played, "wins": s.wins,
+             "draws": s.draws, "losses": s.losses, "goals_for": s.goals_for, "goals_against": s.goals_against,
+             "points": s.points}
+            for s, c in rows
+        ],
+    }

@@ -188,6 +188,71 @@ function Awards({ careerId }) {
   )
 }
 
+function Tables({ careerId, myClubId }) {
+  const [season, setSeason] = useState(null)
+  const [competition, setCompetition] = useState(null)
+  const state = useApi(`/careers/${careerId}/tables${qs({ season, competition_id: competition })}`)
+  return (
+    <Async state={state} loadingLabel="Printing the tables">
+      {(t) => !t.seasons.length ? (
+        <EmptyState icon="table_chart" title="No tables on file yet">
+          Sync after the last matchday of a season (before you advance to the next one) to keep the full final table — EA wipes it when the new season starts.
+        </EmptyState>
+      ) : (
+        <div>
+          <div className="mb-5 flex flex-wrap items-center gap-3">
+            <PillGroup label="Season" value={t.season} onChange={(v) => { setSeason(v); setCompetition(null) }}
+              options={t.seasons.map((y) => ({ value: y, label: seasonLabel(y) }))} />
+            <label className="flex items-center gap-2">
+              <span className="label">League</span>
+              <select value={t.competition_id ?? ''} onChange={(e) => setCompetition(Number(e.target.value))}
+                className="rounded-lg bg-night-800 px-3 py-2 font-head font-bold uppercase ring-1 ring-white/10">
+                {t.competitions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="panel overflow-x-auto">
+            <table className="w-full min-w-[34rem] text-left">
+              <thead className="bg-black/40 font-head text-sm uppercase text-chalk-dim">
+                <tr>
+                  <th scope="col" className="px-4 py-2">#</th>
+                  <th scope="col" className="px-2 py-2">Club</th>
+                  {!t.final_positions_only && ['P', 'W', 'D', 'L', 'GD', 'Pts'].map((h) => <th key={h} scope="col" className="px-2 py-2 text-right">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {t.rows.map((r) => (
+                  <tr key={r.club.id} className={`border-t border-white/5 ${r.club.id === myClubId ? 'bg-club-1/25 font-bold' : ''}`}>
+                    <td className="num px-4 py-2 text-xl">{r.position ?? '—'}</td>
+                    <td className="px-2 py-2">
+                      <Link to={`/clubs/${r.club.id}`} className="flex items-center gap-2 hover:underline"><ClubCrest club={r.club} className="h-6 w-6" />{r.club.name}</Link>
+                    </td>
+                    {!t.final_positions_only && (
+                      <>
+                        <td className="num px-2 py-2 text-right">{r.played}</td>
+                        <td className="num px-2 py-2 text-right">{r.wins}</td>
+                        <td className="num px-2 py-2 text-right">{r.draws}</td>
+                        <td className="num px-2 py-2 text-right">{r.losses}</td>
+                        <td className="num px-2 py-2 text-right">{(r.goals_for || 0) - (r.goals_against || 0)}</td>
+                        <td className="num px-2 py-2 text-right text-xl text-flood">{r.points}</td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {t.final_positions_only && (
+            <p className="mt-3 text-sm text-chalk-dim">
+              <Icon name="info" className="align-middle text-base" /> Only final positions survived for {t.season_label} — this save was synced after EA reset the table. Sync right after the last matchday to keep points, wins and goals too.
+            </p>
+          )}
+        </div>
+      )}
+    </Async>
+  )
+}
+
 export default function Stats() {
   const { career } = useOutletContext()
   const [tab, setTab] = useState('leaders')
@@ -201,10 +266,16 @@ export default function Stats() {
         label="Stats sections"
         value={tab}
         onChange={setTab}
-        tabs={[{ id: 'leaders', label: 'Leaderboards', icon: 'leaderboard' }, { id: 'awards', label: 'Awards', icon: 'emoji_events' }]}
+        tabs={[
+          { id: 'leaders', label: 'Leaderboards', icon: 'leaderboard' },
+          { id: 'tables', label: 'Tables', icon: 'table_chart' },
+          { id: 'awards', label: 'Awards', icon: 'emoji_events' },
+        ]}
       />
       <div className="mt-6">
-        {tab === 'leaders' ? <Leaderboards careerId={career.id} /> : <Awards careerId={career.id} />}
+        {tab === 'leaders' && <Leaderboards careerId={career.id} />}
+        {tab === 'tables' && <Tables careerId={career.id} myClubId={career.team?.id} />}
+        {tab === 'awards' && <Awards careerId={career.id} />}
       </div>
     </div>
   )
