@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Text, Integer
+from sqlalchemy import Boolean, String, DateTime, Text, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from fc_universe.database import Base
@@ -26,6 +26,8 @@ class Career(Base):
     team_name: Mapped[str | None] = mapped_column(String(100))
     team_id: Mapped[int | None] = mapped_column(Integer)
     save_file_path: Mapped[str | None] = mapped_column(Text)
+    # Kept forever by the user. Careers that aren't kept are removed once their save is gone.
+    is_preserved: Mapped[bool | None] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

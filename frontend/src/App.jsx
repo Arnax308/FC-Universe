@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import Layout from './Layout'
 import Careers from './Careers'
 import Players from './Players'
+import Stats from './Stats'
 import PlayerProfile from './PlayerProfile'
 import Clubs from './Clubs'
 import ClubProfile from './ClubProfile'
@@ -25,6 +26,7 @@ function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Careers />} />
           <Route path="careers" element={<Careers />} />
+          <Route path="stats" element={<Stats />} />
           <Route path="players" element={<Players />} />
           <Route path="players/:id" element={<PlayerProfile />} />
           <Route path="clubs" element={<Clubs />} />

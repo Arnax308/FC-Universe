@@ -23,6 +23,7 @@ async function request(path, options = {}) {
 
 export const apiGet = (path, { signal } = {}) => request(path, { signal })
 export const apiPost = (path) => request(path, { method: 'POST' })
+export const apiDelete = (path) => request(path, { method: 'DELETE' })
 
 /** Build a query string, dropping null/undefined/'' values; arrays repeat the key. */
 export function qs(params) {

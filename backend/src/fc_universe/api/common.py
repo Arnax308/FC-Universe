@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from fc_universe.models import Career, Club, Competition, Season, TimelineEvent
 
 BASE_SEASON_YEAR = 2025
+# "honour" = a title outside the headline competitions: shown in trophy cabinets, not the timeline
+TROPHY_EVENT_TYPES = ("trophy", "honour")
 
 
 def current_season_year(db: Session, career_id: int) -> int:
@@ -55,7 +57,8 @@ def resolve_trophy_icon(name: str) -> str:
         (("efl", "carabao", "league cup"), "carabao"),
         (("ligue 1",), "ligue_1"),
         (("coupe de france",), "coupe_de_france"),
-        (("ballon", "player of the year", "best player"), "balondor"),
+        (("ballon", "player of the year", "best player", "player of the season", "golden boot",
+          "golden glove", "playmaker"), "balondor"),
         (("fa cup", "community shield"), "fa"),
     ]
     for keys, icon in rules:
@@ -68,6 +71,8 @@ def classify_competition(comp: Competition | None) -> str:
     if not comp:
         return "other"
     name = comp.name.lower()
+    if comp.type == "international":
+        return "international"
     if "champions league" in name:
         return "champions_league"
     if "europa" in name or "conference" in name:
@@ -86,7 +91,7 @@ def trophy_rows(db: Session, career_id: int, club_ids: list[int] | None = None):
         .outerjoin(Season, Season.id == TimelineEvent.season_id)
         .outerjoin(Competition, Competition.id == TimelineEvent.related_competition_id)
         .outerjoin(Club, Club.id == TimelineEvent.related_club_id)
-        .filter(TimelineEvent.career_id == career_id, TimelineEvent.event_type == "trophy")
+        .filter(TimelineEvent.career_id == career_id, TimelineEvent.event_type.in_(TROPHY_EVENT_TYPES))
     )
     if club_ids is not None:
         if not club_ids:

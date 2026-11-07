@@ -112,3 +112,6 @@ class ParsedSaveData(BaseModel):
     transfers: list[ParsedTransfer] = []
     competitions: list[ParsedCompetition] = []
     raw_tables: dict[str, list[dict]] = {}  # All raw tables for exploration
+    # From the serialized career blocks (see parser/managers.py)
+    leaderboards: dict[int, dict[int, list[tuple[int, int, int]]]] = {}
+    transfer_ledger: list[dict] = []

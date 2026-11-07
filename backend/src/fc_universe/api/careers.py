@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from fc_universe.api.common import club_brief, season_label, user_club
+from fc_universe.api.common import TROPHY_EVENT_TYPES, club_brief, season_label, user_club
 from fc_universe.config import settings
 from fc_universe.database import get_db
 from fc_universe.models import (
@@ -15,6 +15,7 @@ from fc_universe.schemas.common import APIResponse
 from fc_universe.schemas.career import CareerOut
 from fc_universe.parser.fbchunks import FbChunksParser, apply_team_offset_overrides
 from fc_universe.services.import_service import ImportService
+from fc_universe.services.career_admin import delete_career, save_exists, sync_save_folder
 
 router = APIRouter(tags=["careers"])
 
@@ -38,7 +39,7 @@ def _career_out(db: Session, career: Career) -> dict:
     club_ids = _managed_club_ids(db, career)
     trophies = db.query(func.count(TimelineEvent.id)).filter(
         TimelineEvent.career_id == career.id,
-        TimelineEvent.event_type == "trophy",
+        TimelineEvent.event_type.in_(TROPHY_EVENT_TYPES),
         TimelineEvent.related_club_id.in_(club_ids),
     ).scalar() if club_ids else 0
     seasons = (end - start + 1) if years else 0
@@ -59,6 +60,8 @@ def _career_out(db: Session, career: Career) -> dict:
         "duration_years": f"{seasons} Season{'s' if seasons != 1 else ''}" if seasons else None,
         "trophies_count": trophies,
         "team": club_brief(user_club(db, career)),
+        "is_preserved": career.is_preserved,
+        "save_exists": save_exists(career),
     }
 
 
@@ -70,6 +73,40 @@ def list_careers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db))
     if data:
         data[0]["is_last_played"] = True
     return {"success": True, "data": data}
+
+
+@router.post("/careers/sync")
+def sync_all_saves():
+    """Import every new or changed save in the EA folder, then drop careers whose save is gone
+    (unless kept forever)."""
+    from fc_universe.database import SessionLocal
+
+    if not settings.save_directory.exists():
+        raise HTTPException(status_code=400, detail=f"Save folder not found: {settings.save_directory}")
+    return {"success": True, "data": sync_save_folder(SessionLocal)}
+
+
+@router.post("/careers/{career_id}/preserve", response_model=APIResponse[CareerOut])
+def preserve_career(career_id: int, keep: bool = True, db: Session = Depends(get_db)):
+    """Keep a career forever (it survives its save being deleted), or stop keeping it."""
+    career = db.get(Career, career_id)
+    if not career:
+        raise HTTPException(status_code=404, detail="Career not found")
+    career.is_preserved = keep
+    db.commit()
+    return {"success": True, "data": _career_out(db, career)}
+
+
+@router.delete("/careers/{career_id}")
+def remove_career(career_id: int, db: Session = Depends(get_db)):
+    """Delete a career and its whole universe from FC Universe (the save file is untouched)."""
+    career = db.get(Career, career_id)
+    if not career:
+        raise HTTPException(status_code=404, detail="Career not found")
+    name = career.name
+    delete_career(db, career)
+    db.commit()
+    return {"success": True, "data": {"id": career_id, "name": name}}
 
 
 @router.get("/careers/local-saves")

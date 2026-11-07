@@ -18,13 +18,16 @@ class PlayerSeasonStats(Base):
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False)
     season_id: Mapped[int] = mapped_column(ForeignKey("seasons.id"), nullable=False)
     club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
-    appearances: Mapped[int | None] = mapped_column(Integer, default=0)
-    goals: Mapped[int | None] = mapped_column(Integer, default=0)
+    # Totals of the player's PlayerCompetitionStats lines; None = not on any tracked leaderboard
+    appearances: Mapped[int | None] = mapped_column(Integer)
+    goals: Mapped[int | None] = mapped_column(Integer)
     assists: Mapped[int | None] = mapped_column(Integer)
     clean_sheets: Mapped[int | None] = mapped_column(Integer)
-    yellow_cards: Mapped[int | None] = mapped_column(Integer, default=0)
-    red_cards: Mapped[int | None] = mapped_column(Integer, default=0)
+    yellow_cards: Mapped[int | None] = mapped_column(Integer)
+    red_cards: Mapped[int | None] = mapped_column(Integer)
     avg_rating: Mapped[float | None] = mapped_column(Float)
+    # National team the player was called up to that season (trophy cabinet for internationals)
+    national_team_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     def __repr__(self) -> str:

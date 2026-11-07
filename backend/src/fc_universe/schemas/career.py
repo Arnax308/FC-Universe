@@ -23,4 +23,6 @@ class CareerOut(CareerBase):
     trophies_count: int | None = 0
     team: dict | None = None
     is_last_played: bool | None = False
+    is_preserved: bool | None = None
+    save_exists: bool | None = True
     model_config = ConfigDict(from_attributes=True)

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fc_universe.config import settings
 from fc_universe.database import create_tables
-from fc_universe.api import health, careers, players, clubs, images, transfers, timeline, career_profile
+from fc_universe.api import health, careers, players, clubs, images, transfers, timeline, career_profile, stats
 
 
 # Show the app's own INFO logs (e.g. save syncing) next to uvicorn's
@@ -27,41 +27,21 @@ if not _app_logger.handlers:
 
 def auto_sync_saves():
     """On app launch, import (in a background thread) every career save that is new or has
-    been saved again since its last import. Imports are idempotent, so this is always safe."""
+    been saved again since its last import, then drop careers whose save is gone (unless kept
+    forever). Imports are idempotent, so this is always safe."""
     import threading
 
     def _bg_import():
         logger = logging.getLogger("fc_universe.auto_import")
         try:
-            from datetime import datetime
             from fc_universe.database import SessionLocal
-            from fc_universe.models import Career
-            from fc_universe.parser.fbchunks import FbChunksParser, apply_team_offset_overrides
-            from fc_universe.services.import_service import ImportService
+            from fc_universe.services.career_admin import sync_save_folder
 
-            save_dir = settings.save_directory
-            if not save_dir.exists():
-                logger.info(f"Save directory not found: {save_dir}")
+            if not settings.save_directory.exists():
+                logger.info(f"Save directory not found: {settings.save_directory}")
                 return
-
-            apply_team_offset_overrides(settings.team_id_offset)
-            parser = FbChunksParser()
-            # Oldest first, so the most recently played career ends up first in the list
-            for save_file in sorted(save_dir.glob("CmMgrC*"), key=lambda p: p.stat().st_mtime):
-                db = SessionLocal()
-                try:
-                    header = parser.read_header(save_file)
-                    career = db.query(Career).filter(Career.save_identifier == header.save_identifier).first()
-                    modified = datetime.utcfromtimestamp(save_file.stat().st_mtime)
-                    if career and career.updated_at and career.updated_at >= modified:
-                        continue
-                    logger.info(f"Syncing save {save_file.name} ({header.career_name})...")
-                    career = ImportService(db).import_save(parser.parse(save_file))
-                    logger.info(f"Synced career ID={career.id} ('{career.name}')")
-                except Exception:
-                    logger.exception(f"Auto-import of {save_file.name} failed")
-                finally:
-                    db.close()
+            result = sync_save_folder(SessionLocal)
+            logger.info(f"Save sync: {result}")
         except Exception:
             logger.exception("Auto-import on startup failed")
 
@@ -101,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(transfers.router, prefix=settings.api_prefix)
     app.include_router(timeline.router, prefix=settings.api_prefix)
     app.include_router(career_profile.router, prefix=settings.api_prefix)
+    app.include_router(stats.router, prefix=settings.api_prefix)
 
     # Serve React SPA static files if the frontend build exists
     import os

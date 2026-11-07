@@ -7,7 +7,7 @@ import { ClubCrest, PlayerFace } from './components/media'
 import { Async, EmptyState, Icon, PageHeader, PillGroup, PositionChip, RatingBadge, StatTile } from './components/ui'
 
 const TYPE_STYLE = {
-  buy: { label: 'Signed', cls: 'bg-pitch text-night' },
+  buy: { label: 'Transfer', cls: 'bg-pitch text-night' },
   loan: { label: 'Loan', cls: 'bg-cyan text-night' },
   free: { label: 'Free', cls: 'bg-violet text-chalk' },
   release: { label: 'Released', cls: 'bg-derby text-chalk' },
@@ -79,7 +79,7 @@ export default function Transfers() {
               <div className="mb-6">
                 <PillGroup label="Deal type" value={type} onChange={setType} options={[
                   { value: '', label: 'All deals' },
-                  { value: 'buy', label: 'Signings', activeClass: 'bg-pitch text-night' },
+                  { value: 'buy', label: 'Transfers', activeClass: 'bg-pitch text-night' },
                   { value: 'loan', label: 'Loans', activeClass: 'bg-cyan text-night' },
                   { value: 'free', label: 'Free agents', activeClass: 'bg-violet text-chalk' },
                   { value: 'release', label: 'Releases', activeClass: 'bg-derby text-chalk' },
@@ -89,7 +89,7 @@ export default function Transfers() {
                 <ul className="space-y-3">{list.map((t, i) => <Deal key={t.id} t={t} i={i} />)}</ul>
               ) : (
                 <EmptyState icon="swap_horiz" title="The window is quiet">
-                  Moves are spotted by comparing saves — play on, save, and re-sync this universe to see who changed clubs.
+                  Your club’s deals are read straight from the save; moves elsewhere are spotted between syncs — play on, save, and sync again to see who changed clubs.
                 </EmptyState>
               )}
             </>

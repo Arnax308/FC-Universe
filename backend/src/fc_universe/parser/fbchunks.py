@@ -119,6 +119,16 @@ class BinaryReader:
             return raw.decode("ascii", errors="replace")
 
 
+def _fixed_string(data: bytes, offset: int, length: int) -> str:
+    raw = data[offset:offset + length].split(b"\x00", 1)[0]
+    text = raw.decode("utf-8", errors="ignore").strip()
+    return text if text.isprintable() else ""
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
 class FbChunksParser(SaveParser):
     """Parser for EA FC FBCHUNKS save file format.
 
@@ -155,9 +165,16 @@ class FbChunksParser(SaveParser):
         team_name = valid_strings[1] if len(valid_strings) > 1 else "Unknown Club"
         manager_name = valid_strings[2] if len(valid_strings) > 2 else "Unknown Manager"
 
-        # EA keeps one file per career slot (CmMgrC<created-timestamp>) and overwrites it on
-        # every save, so the filename stem is the stable identity of a career.
-        save_id = Path(file_path).stem
+        # EA writes every save to a NEW timestamped file (CmMgrC<save time>) and deletes the old
+        # one, so the filename is not an identity. The career's slot name and the manager's short
+        # name ("E. Howe") sit at fixed offsets in the header and survive re-saves.
+        slot_name = _fixed_string(header_bytes, 0x12, 32) or career_name
+        manager_short = _fixed_string(header_bytes, 0xFA, 32)
+        if slot_name and manager_short:
+            save_id = "cm:" + _slug(slot_name) + ":" + _slug(manager_short)
+        else:
+            save_id = Path(file_path).stem
+        career_name = slot_name or career_name
 
         return SaveHeaderInfo(
             career_name=career_name,
@@ -392,10 +409,20 @@ class FbChunksParser(SaveParser):
         except Exception as e:
             logger.warning(f"Failed to post-process header from tables: {e}")
 
-        # Build parsed data
+        # Season leaderboards and the user's transfer ledger live outside the tables
+        from fc_universe.parser.managers import read_leaderboards, read_transfer_ledger
+        try:
+            leaderboards = read_leaderboards(data)
+            ledger = read_transfer_ledger(data)
+        except Exception as e:
+            logger.warning(f"Failed to read career blocks: {e}")
+            leaderboards, ledger = {}, []
+
         parsed = ParsedSaveData(
             header=header,
             raw_tables=all_tables,
+            leaderboards=leaderboards,
+            transfer_ledger=ledger,
         )
 
         return parsed

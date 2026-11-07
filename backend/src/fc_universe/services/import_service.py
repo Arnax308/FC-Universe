@@ -32,6 +32,11 @@ from fc_universe.models import (
     ManagerSeasonHistory,
 )
 from fc_universe.parser.models import ParsedSaveData
+from fc_universe.services.career_stats import CareerStatsMixin, game_date_from
+from fc_universe.services.competitions import (
+    ASSET_COMPETITIONS, COMPOBJ_ASSETS, INTERNATIONAL, SYNTHETIC_BASE, TOP_5_LEAGUES,
+    asset_from_shortname, known_cups,
+)
 from fc_universe.services.nations import nation_for
 
 logger = logging.getLogger(__name__)
@@ -50,27 +55,8 @@ POSITION_CODE_MAP = {
     14: "CM", 16: "LM", 18: "CAM", 23: "RW", 25: "ST", 27: "LW",
 }
 
-# Cup competitions are addressed by "compobjid" in competition progress (NgwF).
-CUP_COMPETITIONS = {
-    135: ("UEFA Champions League", "continental"),
-    136: ("UEFA Europa League", "continental"),
-    223: ("UEFA Conference League", "continental"),
-    139: ("FIFA Club World Cup", "continental"),
-    1335: ("Copa del Rey", "cup"),
-    5335: ("Copa del Rey", "cup"),
-    1327: ("Supercopa de España", "cup"),
-    1313: ("FA Cup", "cup"),
-    5313: ("FA Cup", "cup"),
-    1314: ("EFL Cup (Carabao)", "cup"),
-    5314: ("EFL Cup (Carabao)", "cup"),
-    1319: ("DFB-Pokal", "cup"),
-    5319: ("DFB-Pokal", "cup"),
-    1331: ("Coppa Italia", "cup"),
-    5331: ("Coppa Italia", "cup"),
-    1316: ("Coupe de France", "cup"),
-    5316: ("Coupe de France", "cup"),
-}
-TOP_5_LEAGUES = {13, 53, 19, 31, 16}
+# Cup competitions are addressed by "compobjid" in competition progress (NgwF) and leaderboards.
+CUP_COMPETITIONS = known_cups()
 
 PLAYER_AWARDS = {
     0: "Player of the Month",
@@ -145,9 +131,10 @@ def player_display_name(player) -> str:
     return player.known_name or f"{player.first_name or ''} {player.last_name or ''}".strip() or "Unknown Player"
 
 
-class ImportService:
+class ImportService(CareerStatsMixin):
     def __init__(self, db: Session):
         self.db = db
+        self.base_year = BASE_SEASON_YEAR
 
     def import_save(self, parsed_data: ParsedSaveData) -> Career:
         """Import a parsed save file into the database as a single transaction."""
@@ -177,8 +164,14 @@ class ImportService:
         raw = parsed_data.raw_tables
         header = parsed_data.header
 
-        # 1. Career
+        # 1. Career. Older versions keyed careers by save filename, which EA changes on every
+        # save; adopt such a career when it points at this very file.
         career = self.db.query(Career).filter(Career.save_identifier == header.save_identifier).first()
+        if career is None and header.file_path:
+            career = self.db.query(Career).filter(Career.save_file_path == header.file_path).first()
+            if career:
+                logger.info(f"Re-keying career {career.id} as {header.save_identifier}")
+                career.save_identifier = header.save_identifier
         is_first_import = career is None
         if is_first_import:
             logger.info(f"Creating new career: {header.career_name}")
@@ -229,10 +222,19 @@ class ImportService:
                 upsert_comp(l_id, l_name, "league", str(league.get("WDGJ", "")))  # countryid
         self.db.flush()
 
-        # Competition-progress rows reference the user's league by its compobjid.
+        # Competition-progress rows reference the user's league by its compobjid, and name other
+        # competitions by asset id ("C223" = Champions League).
         compobj_to_comp = {c_id: comps[c_id] for c_id in CUP_COMPETITIONS}
+        compobj_assets = dict(COMPOBJ_ASSETS)
+        for p in raw.get("NgwF", []):
+            c_obj, asset = p.get("OvfW"), asset_from_shortname(p.get("GFQY"))  # compobjid, compshortname
+            if c_obj is not None and asset in ASSET_COMPETITIONS and c_obj not in compobj_to_comp:
+                compobj_to_comp[c_obj] = upsert_comp(c_obj, *ASSET_COMPETITIONS[asset])
+                compobj_assets[c_obj] = asset
         if user_row.get("XGBd") is not None and user_row.get("aQrQ") in comps:  # primarycompobjid, leagueid
             compobj_to_comp[user_row["XGBd"]] = comps[user_row["aQrQ"]]
+        self.db.flush()
+        self.comps, self.compobj_to_comp, self.compobj_assets = comps, compobj_to_comp, compobj_assets
 
         # 3. Seasons
         history_rows = raw.get("zgrE", [])  # career_managerhistory
@@ -262,6 +264,13 @@ class ImportService:
         def season_for(number):
             return seasons.get(season_year(number))
 
+        self.seasons, self.current_year, self.history_rows = seasons, current_year, history_rows
+        self.game_date = game_date_from(raw, current_year)
+        # Matches the user's team has played so far this season (all competitions)
+        self.user_games_now = sum(
+            h.get("NJUU") or 0 for h in history_rows if h.get("vojK") == current_number  # games_played
+        )
+
         # 4. Clubs (teams, lyxL) with league from standings (leagueteamlinks, qdZF)
         raw_standings = raw.get("qdZF", [])
         team_league = {}
@@ -275,6 +284,8 @@ class ImportService:
             game_id, name = c.get("mCXg"), c.get("AUsv")  # teamid, teamname
             if not name or game_id is None:
                 continue
+            if game_id == FREE_AGENTS_TEAM_ID:
+                name = "Free Agents"  # EA calls it "NG - FA"
             if c.get("EveZ") == 1 and not name.endswith(" (W)"):  # gender
                 name = f"{name} (W)"
             club = clubs.get(game_id)
@@ -314,9 +325,15 @@ class ImportService:
         managed_team_game_ids = {h.get("mCXg") for h in history_rows if h.get("mCXg") is not None}
         if career.team_id:
             managed_team_game_ids.add(career.team_id)
+        self.clubs, self.team_league, self.managed_team_game_ids = clubs, team_league, managed_team_game_ids
+        self.league_played = defaultdict(int)  # leagueid -> most matches any team has played
+        for s in raw_standings:
+            if s.get("aQrQ") is not None:
+                self.league_played[s["aQrQ"]] = max(self.league_played[s["aQrQ"]], s.get("QbIe") or 0)
 
         # 6. Players
-        self._import_players(raw, clubs, club_game_id_by_db_id, active_season, is_first_import)
+        self._import_players(raw, clubs, club_game_id_by_db_id, active_season, is_first_import,
+                             ledger=parsed_data.transfer_ledger)
 
         # 7. Season statistics
         self._import_club_stats(raw_standings, clubs, comps, active_season)
@@ -329,26 +346,10 @@ class ImportService:
         self._import_awards(raw, clubs, season_for)
 
         # 10. Trophies
-        managed_leagues = {
+        self.managed_leagues = {
             team_league[t].game_id for t in managed_team_game_ids if t in team_league
         }
-
-        def trophy(comp, club, season, is_user_club=False):
-            if not (comp and club and season):
-                return
-            relevant = comp.game_id in TOP_5_LEAGUES or comp.game_id in CUP_COMPETITIONS or comp.game_id in managed_leagues
-            if not (relevant or is_user_club):
-                return
-            # One winner per competition per season, whichever source reports it first.
-            self._add_event(
-                f"trophy:{comp.game_id}:{season.year}",
-                season_id=season.id,
-                event_type="trophy",
-                description=f"{club.name} have won the {comp.name} in {season.year}/{(season.year + 1) % 100:02d}!",
-                related_club_id=club.id,
-                related_competition_id=comp.id,
-                gender=1 if is_women_club(club) else 0,
-            )
+        trophy = self.trophy
 
         for p in raw.get("NgwF", []):  # career_competitionprogress
             if p.get("SDel") == 1:  # hasteamwon
@@ -367,6 +368,9 @@ class ImportService:
         for h in history_rows:
             if (h.get("npBO") or 0) > 0:  # leaguetrophies
                 trophy(comps.get(h.get("aQrQ")), clubs.get(h.get("mCXg")), season_for(h.get("vojK")), True)
+
+        # Every competition's reigning champion, internationals included
+        self._import_champions(raw)
 
         # 11. Manager career history (rebuilt from the save every time)
         self.db.query(ManagerSeasonHistory).filter(ManagerSeasonHistory.career_id == career.id).delete()
@@ -412,12 +416,79 @@ class ImportService:
                 big_sell_amount=h.get("tyaM") or None,
                 big_sell_player=h.get("JkVn") or None,
             ))
+        self.db.flush()
+
+        # 12. Per-competition season stats (goals, assists, clean sheets...) and transfer fees
+        self._ingest_leaderboards(parsed_data.leaderboards)
+        self._recompute_season_totals()
+        self._import_transfer_ledger(parsed_data.transfer_ledger)
+        self.db.flush()
+
+        # 13. Ballon d'Or, Golden Boots and Players of the Season for finished seasons
+        self._award_events()
 
         return career
 
+    # ------------------------------------------------------------------ trophies
+
+    def trophy(self, comp, club, season, is_user_club=False, major=False):
+        """Log a title. Big ones (top-5 leagues, major cups, internationals, the user's leagues and
+        clubs) are timeline "trophy" events; the rest are "honour" events that only appear in
+        trophy cabinets."""
+        if not (comp and club and season):
+            return
+        relevant = (major or is_user_club or comp.game_id in TOP_5_LEAGUES or comp.game_id in CUP_COMPETITIONS
+                    or comp.game_id in self.managed_leagues
+                    or comp.game_id - SYNTHETIC_BASE in ASSET_COMPETITIONS
+                    or comp.game_id - SYNTHETIC_BASE in INTERNATIONAL)
+        # One winner per competition per season, whichever source reports it first.
+        self._add_event(
+            f"trophy:{comp.game_id}:{season.year}",
+            season_id=season.id,
+            event_type="trophy" if relevant else "honour",
+            description=f"{club.name} have won the {comp.name} in {season.year}/{(season.year + 1) % 100:02d}!",
+            related_club_id=club.id,
+            related_competition_id=comp.id,
+            gender=1 if is_women_club(club) else 0,
+        )
+
+    def _award_events(self):
+        from fc_universe.services.awards import compute_awards
+
+        seasons = {s.year: s for s in self.seasons.values()}
+        players = {p.id: p for p in self._players.values()}
+        clubs = {c.id: c for c in self.clubs.values()}
+        managed_ids = {self.clubs[g].id for g in self.managed_team_game_ids if g in self.clubs}
+        for year, awards in compute_awards(self.db, self.career.id).items():
+            season = seasons.get(year)
+            for a in awards:
+                if a["name"] not in ("Ballon d'Or", "Ballon d'Or Féminin", "Golden Boot", "Player of the Season",
+                                     "Club Player of the Season"):
+                    continue
+                player = players.get(a["player_id"])
+                if not player or not season:
+                    continue
+                # League awards only make the timeline for the top-5 and the user's leagues
+                if a["scope"] == "league" and not any(
+                        c.name == a["competition"] and (c.game_id in TOP_5_LEAGUES or c.game_id in self.managed_leagues)
+                        for c in self.comps.values()):
+                    continue
+                where = f" ({a['competition']})" if a.get("competition") else ""
+                club = clubs.get(a.get("club_id"))
+                if a["scope"] == "club":
+                    if a["club_id"] not in managed_ids:
+                        continue
+                    where = f" at {club.name}" if club else ""
+                self._add_event(
+                    f"award:computed:{a['key']}:{year}",
+                    season_id=season.id, event_type="award",
+                    description=f"{player_display_name(player)} wins the {a['name']}{where} for {year}/{(year + 1) % 100:02d}!",
+                    related_player_id=player.id, related_club_id=a.get("club_id"), gender=player.gender or 0,
+                )
+
     # ------------------------------------------------------------------ players
 
-    def _import_players(self, raw, clubs, club_game_id_by_db_id, active_season, is_first_import):
+    def _import_players(self, raw, clubs, club_game_id_by_db_id, active_season, is_first_import, ledger=()):
         from fc_universe.services.name_resolver import NameResolver
 
         career = self.career
@@ -432,10 +503,13 @@ class ImportService:
         # National teams (teamnationlinks) so club links win over national-team links
         national_team_ids = {r.get("mCXg") for r in raw.get("CxJp", []) if r.get("mCXg") is not None}
         self.player_links = {}
+        self.national_links = {}  # playerid -> national team id
         for link in raw.get("RrqT", []):  # teamplayerlinks
             p_id, c_id = link.get("ykFq"), link.get("mCXg")
             if p_id is None or c_id is None:
                 continue
+            if c_id in national_team_ids:
+                self.national_links[p_id] = c_id
             current = self.player_links.get(p_id)
             if current is None or (current.get("mCXg") in national_team_ids and c_id not in national_team_ids):
                 self.player_links[p_id] = link
@@ -446,6 +520,8 @@ class ImportService:
             (r.get("ykFq"), r.get("mCXg")): r.get("bmPU")  # playerid, teamid, offeredfee
             for r in raw.get("gllz", []) if (r.get("bmPU") or 0) > 0
         }
+        # The user club's ledger knows the fee of its own deals (keyed by player; the newest wins)
+        ledger_fees = {r["player_id"]: r["fee"] for r in sorted(ledger, key=lambda r: r["date"]) if r["fee"]}
 
         players = {p.game_id: p for p in self.db.query(Player).filter(Player.career_id == career.id)}
         user_club = clubs.get(career.team_id)
@@ -480,7 +556,7 @@ class ImportService:
                 else:
                     t_type = "buy"
                 pending_transfers.append((game_id, existing.current_club_id, club_db_id, t_type,
-                                          agreed_fees.get((game_id, new_gid))))
+                                          agreed_fees.get((game_id, new_gid)) or ledger_fees.get(game_id)))
 
             primary_pos = POSITION_CODE_MAP.get(p.get("wZQU"))
             secondary = [POSITION_CODE_MAP.get(p.get(col)) for col in ("NgVS", "OblE")]
@@ -564,43 +640,87 @@ class ImportService:
     # ------------------------------------------------------------------ stats
 
     def _import_club_stats(self, raw_standings, clubs, comps, active_season):
-        existing = {
-            cs.club_id: cs for cs in
-            self.db.query(ClubSeasonStats).filter(ClubSeasonStats.season_id == active_season.id)
-        }
+        """League tables, filed under the season they belong to.
+
+        Between seasons EA zeroes every table (points, W/D/L, goals) but leaves the stale
+        matches-played count; only previousyeartableposition still says how last season ended.
+        """
+        by_league = defaultdict(list)
         seen = set()
         for s in raw_standings:
             club = clubs.get(s.get("mCXg"))
-            comp = comps.get(s.get("aQrQ"))
-            if not club or club.id in seen:
+            if not club or club.id in seen or s.get("aQrQ") not in comps:
                 continue  # first standings row per club wins (matches club.league)
             seen.add(club.id)
-            stats = existing.get(club.id)
-            if not stats:
-                stats = ClubSeasonStats(club_id=club.id, season_id=active_season.id)
-                self.db.add(stats)
-                existing[club.id] = stats
-            stats.competition_id = comp.id if comp else None
-            stats.position = s.get("fNOl")  # currenttableposition
-            stats.previous_position = s.get("MDeW")  # previousyeartableposition
-            stats.matches_played = s.get("QbIe")  # nummatchesplayed
-            stats.wins = (s.get("oxHc") or 0) + (s.get("txAm") or 0)  # home + away wins
-            stats.draws = (s.get("HjBw") or 0) + (s.get("vmpt") or 0)
-            stats.losses = (s.get("oQGq") or 0) + (s.get("QMes") or 0)
-            stats.goals_for = (s.get("gazb") or 0) + (s.get("Unns") or 0)  # homegf + awaygf
-            stats.goals_against = (s.get("WWGU") or 0) + (s.get("uruv") or 0)  # homega + awayga
-            stats.points = s.get("Yyym") or 0
+            by_league[s["aQrQ"]].append(s)
+
+        def wins(s):
+            return (s.get("oxHc") or 0) + (s.get("txAm") or 0)  # home + away wins
+
+        def draws(s):
+            return (s.get("HjBw") or 0) + (s.get("vmpt") or 0)
+
+        def losses(s):
+            return (s.get("oQGq") or 0) + (s.get("QMes") or 0)
+
+        reset = {lid for lid, rows in by_league.items()
+                 if not any((s.get("Yyym") or 0) or wins(s) or draws(s) or losses(s) for s in rows)}
+        years = self._attribute_standings({lid: rows for lid, rows in by_league.items() if lid not in reset})
+        prev_season = self.seasons.get(self.current_year - 1)
+        for lid in reset:
+            years[lid] = prev_season.year if prev_season else None
+
+        season_ids = {self.seasons[y].id for y in set(years.values()) if y in self.seasons}
+        existing = {
+            (cs.club_id, cs.season_id): cs for cs in
+            self.db.query(ClubSeasonStats).filter(ClubSeasonStats.season_id.in_(season_ids))
+        }
+        for league_id, rows in by_league.items():
+            season = self.seasons.get(years.get(league_id))
+            comp = comps[league_id]
+            if league_id in reset or (season and season is not active_season):
+                # Older versions filed last season's table under the current season; drop those copies.
+                self.db.query(ClubSeasonStats).filter(
+                    ClubSeasonStats.season_id == active_season.id, ClubSeasonStats.competition_id == comp.id,
+                ).delete(synchronize_session=False)
+            if not season:
+                continue
+            for s in rows:
+                club = clubs[s["mCXg"]]
+                stats = existing.get((club.id, season.id))
+                if league_id in reset:
+                    # Only the final position survives; keep any full table captured earlier.
+                    final = s.get("MDeW")  # previousyeartableposition
+                    if not final or final <= 0 or (stats and stats.competition_id not in (None, comp.id)):
+                        continue
+                    if s.get("PSlV") not in (None, league_id):  # prevleagueid: promoted/relegated
+                        continue
+                    if not stats:
+                        stats = ClubSeasonStats(club_id=club.id, season_id=season.id, competition_id=comp.id)
+                        self.db.add(stats)
+                        existing[(club.id, season.id)] = stats
+                    stats.position = final
+                    continue
+                if not stats:
+                    stats = ClubSeasonStats(club_id=club.id, season_id=season.id)
+                    self.db.add(stats)
+                    existing[(club.id, season.id)] = stats
+                stats.competition_id = comp.id
+                stats.position = s.get("fNOl")  # currenttableposition
+                stats.previous_position = s.get("MDeW")  # previousyeartableposition
+                stats.wins, stats.draws, stats.losses = wins(s), draws(s), losses(s)
+                stats.matches_played = stats.wins + stats.draws + stats.losses
+                stats.goals_for = (s.get("gazb") or 0) + (s.get("Unns") or 0)  # homegf + awaygf
+                stats.goals_against = (s.get("WWGU") or 0) + (s.get("uruv") or 0)  # homega + awayga
+                stats.points = s.get("Yyym") or 0
 
     def _import_player_stats(self, raw, clubs, active_season):
+        """Who each player plays for (club and national team) this season. The numbers come from
+        the leaderboards later in the import."""
         players = getattr(self, "_players", {})
+        self.player_club_ids = {}
         if not players:
             return
-        # Match ratings (career_playermatchratinghistory) are only kept for recent matches
-        ratings = defaultdict(list)
-        for r in raw.get("TtHG", []):
-            if r.get("Xxmh") is not None and (r.get("Amxm") or 0) > 0:  # rating, minsplayed
-                ratings[r.get("ykFq")].append(r["Xxmh"])
-
         existing = {
             ps.player_id: ps for ps in
             self.db.query(PlayerSeasonStats).filter(PlayerSeasonStats.season_id == active_season.id)
@@ -610,20 +730,14 @@ class ImportService:
             if not player:
                 continue
             club = clubs.get(link.get("mCXg"))
+            nation = clubs.get(self.national_links.get(game_id))
             stats = existing.get(player.id)
             if not stats:
                 stats = PlayerSeasonStats(player_id=player.id, season_id=active_season.id)
                 self.db.add(stats)
             stats.club_id = club.id if club else None
-            stats.appearances = link.get("stFk") or 0  # leagueappearances
-            stats.goals = link.get("UMDX") or 0  # leaguegoals
-            stats.yellow_cards = link.get("jtWI") or 0
-            stats.red_cards = link.get("jIcz") or 0
-            # The save has no assist or clean-sheet counters.
-            stats.assists = None
-            stats.clean_sheets = None
-            r = ratings.get(game_id)
-            stats.avg_rating = round(sum(r) / len(r), 2) if r else None
+            stats.national_team_id = nation.id if nation else None
+            self.player_club_ids[player.id] = stats.club_id
 
     # ------------------------------------------------------------------ managers
 

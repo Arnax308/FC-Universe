@@ -1,12 +1,32 @@
 import { useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { apiPost, qs, unwrap, useApi } from './lib/api'
+import { apiDelete, apiPost, qs, unwrap, useApi } from './lib/api'
 import { ThemeScope, PitchLines } from './components/broadcast'
 import { ClubCrest } from './components/media'
 import { Async, EmptyState, Icon, PageHeader, SectionBanner, StatTile } from './components/ui'
 import Modal from './components/Modal'
 
-function UniverseCard({ career, active, onSelect, onSync, syncing }) {
+function KeepButton({ career, onKeep, busy }) {
+  const kept = Boolean(career.is_preserved)
+  return (
+    <button
+      type="button"
+      onClick={() => onKeep(career, !kept)}
+      disabled={busy}
+      aria-pressed={kept}
+      title={kept ? 'Kept forever — click to stop keeping it' : 'Keep forever, even if the save is deleted'}
+      className={`flex items-center gap-1 rounded-lg px-3 font-head text-sm font-black uppercase italic ring-1 transition disabled:opacity-50 ${
+        kept ? 'bg-flood text-night ring-flood' : 'bg-night-700 text-chalk-dim ring-white/10 hover:bg-night-600 hover:text-chalk'
+      }`}
+    >
+      <Icon name="all_inclusive" className="text-xl" />
+      <span className="hidden sm:inline">{kept ? 'Kept' : 'Keep'}</span>
+    </button>
+  )
+}
+
+function UniverseCard({ career, active, onSelect, onSync, onKeep, onRemove, syncing, busy }) {
+  const orphaned = career.save_exists === false
   return (
     <ThemeScope club={career.team} className="h-full">
       <article className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border-2 bg-night-800 transition hover:-translate-y-1 ${active ? 'border-flood shadow-[0_0_0_4px_rgb(var(--flood)/.25)]' : 'border-club-1/60'}`}>
@@ -14,10 +34,26 @@ function UniverseCard({ career, active, onSelect, onSync, syncing }) {
           <div className="absolute inset-0 bg-gradient-to-t from-night-800 via-night-800/40 to-transparent" />
           <span className="absolute left-4 top-3 rounded bg-black/70 px-2 py-0.5 font-display text-lg">{career.current_season || '—'}</span>
           {active && <span className="absolute right-3 top-3 rounded bg-flood px-2 py-0.5 font-head text-sm font-black uppercase italic text-night">On air</span>}
+          {!active && career.is_preserved && (
+            <span className="absolute right-3 top-3 flex items-center gap-1 rounded bg-black/70 px-2 py-0.5 font-head text-sm font-black uppercase italic text-flood">
+              <Icon name="all_inclusive" className="text-base" /> Kept forever
+            </span>
+          )}
           <ClubCrest club={career.team} gameId={career.team_id} name={career.team_name} className="absolute -bottom-8 left-4 h-20 w-20" />
         </div>
-        <div className="flex flex-1 flex-col px-4 pb-4 pt-10">
+        {orphaned && !career.is_preserved && (
+          <div role="status" className="mx-4 mt-10 rounded-lg border-2 border-dashed border-derby bg-derby/15 p-3 text-sm">
+            <p className="font-head font-black uppercase italic text-derby">Save deleted in FC 26</p>
+            <p className="mt-1 text-chalk-dim">This universe’s save is gone. Keep its history forever, or remove it.</p>
+            <div className="mt-2 flex gap-2">
+              <button type="button" disabled={busy} onClick={() => onKeep(career, true)} className="rounded bg-flood px-3 py-1 font-head text-sm font-black uppercase italic text-night disabled:opacity-50">Keep forever</button>
+              <button type="button" disabled={busy} onClick={() => onRemove(career)} className="rounded bg-night-600 px-3 py-1 font-head text-sm font-black uppercase italic ring-1 ring-white/10 hover:bg-derby disabled:opacity-50">Remove</button>
+            </div>
+          </div>
+        )}
+        <div className={`flex flex-1 flex-col px-4 pb-4 ${orphaned && !career.is_preserved ? 'pt-4' : 'pt-10'}`}>
           <h3 className="text-3xl leading-none">{career.name}</h3>
+          {orphaned && career.is_preserved && <p className="label mt-1 text-chalk-dim">Save deleted · history kept</p>}
           <p className="mt-1 font-semibold text-club-1">{career.team_name || 'Unknown club'}</p>
           <p className="text-sm text-chalk-dim">Manager · {career.manager_name || '—'}</p>
           <dl className="mt-4 grid grid-cols-2 gap-2">
@@ -39,7 +75,8 @@ function UniverseCard({ career, active, onSelect, onSync, syncing }) {
             >
               {active ? 'Active universe' : 'Enter universe'}
             </button>
-            {career.save_file_path && (
+            <KeepButton career={career} onKeep={onKeep} busy={busy} />
+            {career.save_file_path && !orphaned && (
               <button
                 type="button"
                 onClick={() => onSync(career.save_file_path)}
@@ -66,6 +103,50 @@ export default function Careers() {
   const [savesVersion, setSavesVersion] = useState(0)
   const saves = useApi(modalOpen ? `/careers/local-saves?v=${savesVersion}` : null, { select: unwrap })
   const summary = useApi(career ? `/careers/${career.id}/summary` : null, { select: unwrap })
+
+  const [busy, setBusy] = useState(false)
+
+  const keepCareer = (c, keep) => {
+    setBusy(true)
+    apiPost(`/careers/${c.id}/preserve${qs({ keep })}`)
+      .then(() => {
+        setStatus({ kind: 'ok', text: keep ? `“${c.name}” will be kept forever.` : `“${c.name}” will be removed once its save is deleted.` })
+        return refreshCareers(career?.id)
+      })
+      .catch((err) => setStatus({ kind: 'error', text: err.message }))
+      .finally(() => setBusy(false))
+  }
+
+  const removeCareer = (c) => {
+    if (!window.confirm(`Remove “${c.name}” and its whole history from FC Universe? Your FC 26 save files are not touched.`)) return
+    setBusy(true)
+    apiDelete(`/careers/${c.id}`)
+      .then(() => {
+        setStatus({ kind: 'ok', text: `Removed “${c.name}”.` })
+        return refreshCareers(c.id === career?.id ? null : career?.id)
+      })
+      .catch((err) => setStatus({ kind: 'error', text: err.message }))
+      .finally(() => setBusy(false))
+  }
+
+  const syncAll = () => {
+    if (importing) return
+    setImporting('Syncing saves…')
+    setStatus({ kind: 'busy', text: 'Checking the FC 26 save folder for new and updated careers…' })
+    apiPost('/careers/sync')
+      .then((body) => {
+        const { synced = [], removed = [], failed = [] } = body.data || {}
+        const parts = [
+          synced.length ? `Synced ${synced.join(', ')}` : 'Everything was already up to date',
+          removed.length ? `removed ${removed.length} career${removed.length > 1 ? 's' : ''} whose save is gone` : null,
+          failed.length ? `${failed.length} save${failed.length > 1 ? 's' : ''} couldn’t be read` : null,
+        ].filter(Boolean)
+        setStatus({ kind: failed.length ? 'error' : 'ok', text: `${parts.join(' · ')}.` })
+        return refreshCareers(career?.id)
+      })
+      .catch((err) => setStatus({ kind: 'error', text: err.message }))
+      .finally(() => setImporting(null))
+  }
 
   const runImport = (path) => {
     if (!path || importing) return
@@ -125,11 +206,37 @@ export default function Careers() {
         </section>
       )}
 
-      <SectionBanner title="All universes" kicker={`${careers.length} saves`} color="flood" />
+      <SectionBanner
+        title="All universes"
+        kicker={`${careers.length} saves`}
+        color="flood"
+        right={(
+          <button
+            type="button"
+            onClick={syncAll}
+            disabled={Boolean(importing)}
+            className="flex items-center gap-2 rounded-lg bg-night-700 px-4 py-2 font-head text-sm font-black uppercase italic ring-1 ring-white/10 hover:bg-night-600 disabled:opacity-50"
+          >
+            <Icon name="sync" className={`text-lg ${importing ? 'animate-spin' : ''}`} /> Sync all saves
+          </button>
+        )}
+      />
+      <p className="-mt-2 mb-5 max-w-3xl text-sm text-chalk-dim">
+        A universe lives as long as its FC 26 save. Tap <Icon name="all_inclusive" className="align-middle text-base text-flood" /> <span className="font-semibold text-chalk">Keep</span> to hold on to its history forever, even after you delete the save.
+      </p>
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {careers.map((c, i) => (
           <div key={c.id} className="animate-rise" style={{ animationDelay: `${i * 60}ms` }}>
-            <UniverseCard career={c} active={c.id === career?.id} onSelect={selectCareer} onSync={runImport} syncing={Boolean(importing)} />
+            <UniverseCard
+              career={c}
+              active={c.id === career?.id}
+              onSelect={selectCareer}
+              onSync={runImport}
+              onKeep={keepCareer}
+              onRemove={removeCareer}
+              syncing={Boolean(importing)}
+              busy={busy}
+            />
           </div>
         ))}
         <button

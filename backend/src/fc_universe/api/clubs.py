@@ -151,7 +151,8 @@ def get_club(career_id: int, club_id: int, db: Session = Depends(get_db)):
         db.query(ClubSeasonStats, Competition)
         .join(Season, Season.id == ClubSeasonStats.season_id)
         .outerjoin(Competition, Competition.id == ClubSeasonStats.competition_id)
-        .filter(ClubSeasonStats.club_id == club.id, Season.year == year)
+        .filter(ClubSeasonStats.club_id == club.id, Season.year <= year)
+        .order_by(Season.year.desc())
         .first()
     )
     rival = None
@@ -184,12 +185,14 @@ def get_club(career_id: int, club_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/careers/{career_id}/competitions/{competition_id}/table")
-def league_table(career_id: int, competition_id: int, db: Session = Depends(get_db)):
-    """Current-season standings for a league, from the save's league-team links."""
+def league_table(career_id: int, competition_id: int, season: int | None = None, db: Session = Depends(get_db)):
+    """Standings for a league in ``season`` (default: the latest season with a table)."""
     comp = db.query(Competition).filter(Competition.career_id == career_id, Competition.id == competition_id).first()
     if not comp:
         raise HTTPException(status_code=404, detail="Competition not found")
-    year = current_season_year(db, career_id)
+    years = sorted({y for (y,) in db.query(Season.year).join(ClubSeasonStats, ClubSeasonStats.season_id == Season.id)
+                    .filter(Season.career_id == career_id, ClubSeasonStats.competition_id == comp.id)}, reverse=True)
+    year = season if season in years else (years[0] if years else current_season_year(db, career_id))
     rows = (
         db.query(ClubSeasonStats, Club)
         .join(Club, Club.id == ClubSeasonStats.club_id)
@@ -201,6 +204,8 @@ def league_table(career_id: int, competition_id: int, db: Session = Depends(get_
     return {
         "competition": {"id": comp.id, "game_id": comp.game_id, "name": comp.name, "type": comp.type},
         "season_label": season_label(year),
+        "season": year,
+        "seasons": years,
         "rows": [
             {
                 "position": s.position,

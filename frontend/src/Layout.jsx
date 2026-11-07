@@ -9,6 +9,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 const NAV = [
   { to: '/', label: 'Universes', icon: 'public', end: true },
   { to: '/career', label: 'Legacy', icon: 'military_tech' },
+  { to: '/stats', label: 'Stats', icon: 'leaderboard' },
   { to: '/players', label: 'Players', icon: 'directions_run' },
   { to: '/clubs', label: 'Clubs', icon: 'shield' },
   { to: '/transfers', label: 'Transfers', icon: 'swap_horiz' },
@@ -94,8 +95,11 @@ function CareerSwitcher({ careers, career, onSelect }) {
                 <ClubCrest club={c.team} gameId={c.team_id} name={c.team_name} className="h-8 w-8" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-head text-lg font-extrabold uppercase italic leading-tight">{c.name}</span>
-                  <span className="block truncate text-xs text-chalk-dim">{c.manager_name} · {c.team_name}</span>
+                  <span className="block truncate text-xs text-chalk-dim">
+                    {c.manager_name} · {c.team_name}{c.save_exists === false ? ' · save deleted' : ''}
+                  </span>
                 </span>
+                {c.is_preserved && <Icon name="all_inclusive" className="text-flood" />}
                 {c.id === career?.id && <Icon name="check_circle" fill className="text-pitch" />}
               </button>
             </li>
@@ -224,7 +228,7 @@ export default function Layout() {
       </div>
 
       {/* Mobile bottom tab bar */}
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t-2 border-club-1 bg-night-800/95 backdrop-blur lg:hidden">
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-7 border-t-2 border-club-1 bg-night-800/95 backdrop-blur lg:hidden">
         {NAV.map((n) => (
           <NavLink
             key={n.to}

@@ -30,6 +30,8 @@ def list_timeline_events(
     )
     if event_type:
         query = query.filter(TimelineEvent.event_type.in_(event_type))
+    else:
+        query = query.filter(TimelineEvent.event_type != "honour")  # minor titles live in trophy cabinets
     if gender is not None:
         query = query.filter((TimelineEvent.gender == gender) | (TimelineEvent.gender == 2))
 

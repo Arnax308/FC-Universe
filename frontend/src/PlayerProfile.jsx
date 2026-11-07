@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useOutletContext, useParams } from 'react-router-dom'
 import { useApi } from './lib/api'
 import { formatFee, playerName, seasonLabel, statColor } from './lib/format'
@@ -59,6 +60,127 @@ function Stars({ value, label }) {
   )
 }
 
+const n = (v) => (v === null || v === undefined ? '—' : v)
+
+function SeasonStats({ stats, totals, isGk }) {
+  const [open, setOpen] = useState(null)
+  const cols = [
+    ['appearances', 'Apps', ''],
+    ['goals', 'G', 'text-pitch'],
+    ['assists', 'A', 'text-cyan'],
+    ...(isGk ? [['clean_sheets', 'CS', 'text-violet']] : []),
+  ]
+  const tracked = stats.filter((s) => s.appearances !== null || s.competitions.length)
+  return (
+    <section className="panel overflow-hidden">
+      <div className="p-5 pb-0">
+        <SectionBanner title="Season by season" color="pitch" />
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[['Apps', totals?.appearances, 'text-chalk'], ['Goals', totals?.goals, 'text-pitch'], ['Assists', totals?.assists, 'text-cyan'],
+            isGk ? ['Clean sheets', totals?.clean_sheets, 'text-violet'] : ['G + A', (totals?.goals || 0) + (totals?.assists || 0), 'text-flood']].map(([k, v, c]) => (
+            <div key={k} className="rounded-lg bg-black/40 px-3 py-2">
+              <div className="label">Career {k}</div>
+              <div className={`num text-3xl ${c}`}>{v ?? 0}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {stats.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-left">
+            <thead className="bg-black/40 font-head text-sm uppercase text-chalk-dim">
+              <tr>
+                <th scope="col" className="px-5 py-2">Season</th>
+                <th scope="col" className="px-3 py-2">Club</th>
+                {cols.map(([k, label]) => <th key={k} scope="col" className="px-3 py-2 text-right">{label}</th>)}
+                <th scope="col" className="px-3 py-2 text-right" title="Yellow / red cards">Cards</th>
+                <th scope="col" className="px-5 py-2 text-right">Rating</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.map((s) => {
+                const expanded = open === s.season_year
+                const canOpen = s.competitions.length > 0
+                return (
+                  <FragmentRows key={`${s.season_year}-${s.club_name}`}>
+                    <tr className={`border-t border-white/5 ${canOpen ? 'cursor-pointer hover:bg-white/5' : ''}`} onClick={() => canOpen && setOpen(expanded ? null : s.season_year)}>
+                      <td className="px-5 py-3">
+                        <span className="flex items-center gap-1">
+                          {canOpen && <Icon name={expanded ? 'expand_less' : 'expand_more'} className="text-lg text-chalk-dim" />}
+                          <span className="num text-lg">{seasonLabel(s.season_year)}</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className="flex items-center gap-2">
+                          <ClubCrest club={s.club} className="h-6 w-6" />{s.club_name}
+                          {s.national_team && <span className="chip bg-black/50 text-xs" title="Called up">{s.national_team.name}</span>}
+                        </span>
+                      </td>
+                      {cols.map(([k, , c]) => <td key={k} className={`num px-3 py-3 text-right text-2xl ${c}`}>{n(s[k])}</td>)}
+                      <td className="px-3 py-3 text-right text-sm">
+                        <span className="inline-block h-3.5 w-2.5 rounded-sm bg-flood align-middle" aria-hidden="true" /> {n(s.yellow_cards)}
+                        <span className="ml-2 inline-block h-3.5 w-2.5 rounded-sm bg-derby align-middle" aria-hidden="true" /> {n(s.red_cards)}
+                      </td>
+                      <td className="num px-5 py-3 text-right text-xl" style={{ color: s.avg_rating ? statColor(s.avg_rating * 10) : undefined }}>{s.avg_rating ? s.avg_rating.toFixed(2) : '—'}</td>
+                    </tr>
+                    {expanded && s.competitions.map((c) => (
+                      <tr key={c.name} className="bg-black/30 text-sm">
+                        <td className="px-5 py-2" />
+                        <td className="px-3 py-2 text-chalk-dim">{c.name}</td>
+                        {cols.map(([k]) => <td key={k} className="num px-3 py-2 text-right text-lg">{n(c[k])}</td>)}
+                        <td className="px-3 py-2 text-right text-chalk-dim">{n(c.yellow_cards)} / {n(c.red_cards)}</td>
+                        <td className="num px-5 py-2 text-right">{c.avg_rating ? c.avg_rating.toFixed(2) : '—'}</td>
+                      </tr>
+                    ))}
+                  </FragmentRows>
+                )
+              })}
+            </tbody>
+          </table>
+          {!tracked.length && <p className="px-5 py-4 text-chalk-dim">No numbers yet — they appear once this player makes one of EA’s competition leaderboards.</p>}
+        </div>
+      ) : <p className="p-5 text-chalk-dim">No stats recorded yet.</p>}
+    </section>
+  )
+}
+
+function FragmentRows({ children }) {
+  return <>{children}</>
+}
+
+function TrophyCabinet({ trophies, awards }) {
+  const items = [
+    ...awards.map((a) => ({ name: a.name, sub: a.competition, icon: a.icon, year: a.season_year, kind: 'Individual', club: null })),
+    ...trophies.map((t) => ({ ...t, sub: t.club?.name, kind: t.category === 'international' ? 'International' : 'Team' })),
+  ].sort((a, b) => (b.year || 0) - (a.year || 0))
+  const counts = {}
+  items.forEach((t) => { counts[t.name] = (counts[t.name] || 0) + 1 })
+  return (
+    <section className="panel p-5">
+      <SectionBanner title="Trophy cabinet" kicker={items.length ? `${items.length} honours` : null} color="flood" />
+      {items.length ? (
+        <>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([name, c]) => (
+              <span key={name} className="chip bg-flood/15 text-flood">{c}× {name}</span>
+            ))}
+          </div>
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {items.map((t, i) => (
+              <li key={`${t.name}-${t.year}-${i}`} className={`flex flex-col items-center rounded-xl bg-gradient-to-b p-3 text-center ${t.kind === 'Individual' ? 'from-cyan/15' : t.kind === 'International' ? 'from-pink/15' : 'from-flood/15'} to-transparent`}>
+                <TrophyImage src={t.icon} name={t.name} className="h-14 w-14" />
+                <span className="mt-2 font-head text-sm font-bold uppercase leading-tight">{t.name}</span>
+                {t.sub && <span className="mt-0.5 flex items-center gap-1 text-xs text-chalk-dim">{t.club && <ClubCrest club={t.club} className="h-4 w-4" />}{t.sub}</span>}
+                <span className="label mt-0.5">{seasonLabel(t.year)} · {t.kind}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : <p className="text-chalk-dim">No silverware yet.</p>}
+    </section>
+  )
+}
+
 function Profile({ data }) {
   const { player, stats, transfers, awards, trophies, timeline, conversion_plans: plans } = data
   const isGk = player.position === 'GK'
@@ -83,6 +205,7 @@ function Profile({ data }) {
               <PositionChip pos={player.position} />
               {player.secondary_positions?.split(', ').map((p) => <PositionChip key={p} pos={p} className="opacity-70" />)}
               {player.nationality && <span className="chip bg-black/60"><Flag code={player.nation_code} className="h-3 w-4" /> {player.nationality}</span>}
+              {data.national_team && <span className="chip bg-pink text-night"><Icon name="flag" className="text-base" /> {data.national_team.name} squad</span>}
               {player.is_retired && <span className="chip bg-derby">Retired</span>}
             </div>
             <LowerThird title={playerName(player)} subtitle={player.club?.name || 'Free agent'} />
@@ -158,53 +281,10 @@ function Profile({ data }) {
             </div>
           </section>
 
-          <section className="panel overflow-hidden">
-            <div className="p-5 pb-0"><SectionBanner title="Season stats" color="pitch" /></div>
-            {stats.length ? (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[32rem] text-left">
-                  <thead className="bg-black/40 font-head text-sm uppercase text-chalk-dim">
-                    <tr>
-                      <th scope="col" className="px-5 py-2">Season</th>
-                      <th scope="col" className="px-3 py-2">Club</th>
-                      <th scope="col" className="px-3 py-2 text-right">Goals</th>
-                      <th scope="col" className="px-3 py-2 text-right">Yel</th>
-                      <th scope="col" className="px-3 py-2 text-right">Red</th>
-                      <th scope="col" className="px-5 py-2 text-right" title="Average of recent match ratings">Form</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stats.map((s) => (
-                      <tr key={`${s.season_year}-${s.club_name}`} className="border-t border-white/5">
-                        <td className="num px-5 py-3 text-lg">{seasonLabel(s.season_year)}</td>
-                        <td className="px-3 py-3"><span className="flex items-center gap-2"><ClubCrest club={s.club} className="h-6 w-6" />{s.club_name}</span></td>
-                        <td className="num px-3 py-3 text-right text-2xl text-pitch">{s.goals ?? 0}</td>
-                        <td className="px-3 py-3 text-right"><span className="inline-block h-4 w-3 rounded-sm bg-flood align-middle" aria-hidden="true" /> {s.yellow_cards ?? 0}</td>
-                        <td className="px-3 py-3 text-right"><span className="inline-block h-4 w-3 rounded-sm bg-derby align-middle" aria-hidden="true" /> {s.red_cards ?? 0}</td>
-                        <td className="num px-5 py-3 text-right text-xl" style={{ color: s.avg_rating ? statColor(s.avg_rating * 10) : undefined }}>{s.avg_rating ? s.avg_rating.toFixed(1) : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : <p className="p-5 text-chalk-dim">No stats recorded yet.</p>}
-          </section>
+          <SeasonStats stats={stats} totals={data.career_totals} isGk={isGk} />
 
           <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
-            <section className="panel p-5">
-              <SectionBanner title="Honours" color="flood" />
-              {trophies.length || awards.length ? (
-                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {[...trophies.map((t) => ({ ...t, kind: 'Team' })), ...awards.map((a) => ({ name: a.name, icon: a.icon, year: a.season_year, kind: 'Individual' }))].map((t, i) => (
-                    <li key={`${t.name}-${t.year}-${i}`} className="flex flex-col items-center rounded-xl bg-gradient-to-b from-flood/15 to-transparent p-3 text-center">
-                      <TrophyImage src={t.icon} name={t.name} className="h-14 w-14" />
-                      <span className="mt-2 font-head text-sm font-bold uppercase leading-tight">{t.name}</span>
-                      <span className="label mt-0.5">{seasonLabel(t.year)} · {t.kind}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : <p className="text-chalk-dim">No silverware yet.</p>}
-            </section>
+            <TrophyCabinet trophies={trophies} awards={awards} />
 
             <section className="panel p-5">
               <SectionBanner title="Transfers" color="tangerine" />

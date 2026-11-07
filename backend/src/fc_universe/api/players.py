@@ -1,5 +1,7 @@
 """Players API routes."""
 
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, aliased
 
@@ -7,8 +9,9 @@ from fc_universe.api.common import (
     club_brief, current_season_year, resolve_trophy_icon, trophy_dict, trophy_rows, user_club,
 )
 from fc_universe.database import get_db
+from fc_universe.api.stats import player_awards
 from fc_universe.models import (
-    Award, Career, Club, Player, PlayerSeasonStats, Season, TimelineEvent, Transfer,
+    Award, Career, Club, Player, PlayerCompetitionStats, PlayerSeasonStats, Season, TimelineEvent, Transfer,
 )
 from fc_universe.schemas.player import PlayerOut
 
@@ -172,11 +175,26 @@ def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get
         .order_by(Season.year.desc())
         .all()
     )
+    comp_lines = defaultdict(list)
+    for r, c_year in (
+        db.query(PlayerCompetitionStats, Season.year)
+        .join(Season, Season.id == PlayerCompetitionStats.season_id)
+        .filter(PlayerCompetitionStats.player_id == player_id)
+    ):
+        comp_lines[c_year].append({
+            "name": r.competition_name, "type": r.competition_type,
+            **{k: getattr(r, k) for k in ("appearances", "goals", "assists", "clean_sheets",
+                                          "yellow_cards", "red_cards", "avg_rating")},
+        })
+    order = {"league": 0, "continental": 1, "cup": 2}
+    nations = {c.id: c for c in db.query(Club).filter(
+        Club.id.in_({row.national_team_id for row, _, _ in stats_rows if row.national_team_id}))}
     stats = [
         {
             "season_year": s_year,
             "club_name": s_club.name if s_club else "Unknown Club",
             "club": club_brief(s_club),
+            "national_team": club_brief(nations.get(row.national_team_id)),
             "appearances": row.appearances,
             "goals": row.goals,
             "assists": row.assists,
@@ -184,9 +202,14 @@ def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get
             "yellow_cards": row.yellow_cards,
             "red_cards": row.red_cards,
             "avg_rating": row.avg_rating,
+            "competitions": sorted(comp_lines.get(s_year, []), key=lambda c: (order.get(c["type"], 3), c["name"] or "")),
         }
         for row, s_year, s_club in stats_rows
+        if row.appearances is not None or comp_lines.get(s_year) or s_year == year
     ]
+    career_totals = {
+        k: sum(s[k] or 0 for s in stats) for k in ("appearances", "goals", "assists", "clean_sheets")
+    }
 
     FromClub, ToClub = aliased(Club), aliased(Club)
     transfer_rows = (
@@ -219,6 +242,10 @@ def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get
         .all()
     )
     awards = [{"season_year": a_year, "name": a.name, "icon": resolve_trophy_icon(a.name)} for a, a_year in award_rows]
+    awards += [
+        {"season_year": a["season_year"], "name": a["name"], "icon": a["icon"], "competition": a["competition"]}
+        for a in player_awards(db, career_id, player_id)
+    ]
 
     timeline_rows = (
         db.query(TimelineEvent, Season.year)
@@ -232,8 +259,17 @@ def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get
         for e, t_year in timeline_rows
     ]
 
-    # Team trophies count only for seasons the player was actually at the club.
-    tenure = {(row.club_id, s_year) for row, s_year, _ in stats_rows if row.club_id}
+    # Team trophies count only for seasons the player was at the club (or in the national squad).
+    # A title is often first seen in the next pre-season, before any row exists for its season,
+    # so this season's squad also vouches for last season when nothing else is on file for it.
+    tenure = set()
+    years_seen = {s_year for _, s_year, _ in stats_rows}
+    for row, s_year, _ in stats_rows:
+        for cid in (row.club_id, row.national_team_id):
+            if cid:
+                tenure.add((cid, s_year))
+                if s_year == year and s_year - 1 not in years_seen:
+                    tenure.add((cid, s_year - 1))
     if club:
         tenure.add((club.id, year))
     trophies = [
@@ -241,11 +277,15 @@ def get_player_profile(career_id: int, player_id: int, db: Session = Depends(get
         for e, t_year, comp, t_club in trophy_rows(db, career_id, list({c for c, _ in tenure}))
         if (e.related_club_id, t_year) in tenure
     ]
+    current_nation = next((nations.get(row.national_team_id) for row, s_year, _ in stats_rows
+                           if s_year == year and row.national_team_id), None)
 
     return {
         "player": _player_out(player, club, year),
         "current_season_year": year,
         "stats": stats,
+        "career_totals": career_totals,
+        "national_team": club_brief(current_nation),
         "transfers": transfers,
         "awards": awards,
         "trophies": trophies,

@@ -66,7 +66,7 @@ function LeagueTable({ careerId, competitionId, clubId }) {
         <div className="panel overflow-hidden">
           <div className="flex items-center justify-between bg-black/40 px-4 py-3">
             <h3 className="text-2xl">{t.competition.name}</h3>
-            <span className="label">{t.season_label} · current positions</span>
+            <span className="label">{t.season_label}{t.rows.some((r) => r.played) ? ' · positions' : ' · final positions'}</span>
           </div>
           <ol>
             {t.rows.map((r) => {
@@ -84,6 +84,103 @@ function LeagueTable({ careerId, competitionId, clubId }) {
             })}
           </ol>
         </div>
+      )}
+    </Async>
+  )
+}
+
+const dash = (v) => (v === null || v === undefined ? '—' : v)
+
+function SeasonHistory({ careerId, clubId }) {
+  const state = useApi(`/careers/${careerId}/clubs/${clubId}/seasons`)
+  const [open, setOpen] = useState(null)
+  return (
+    <Async state={state} loadingLabel="Opening the archives">
+      {({ seasons }) => seasons.length ? (
+        <div className="space-y-4">
+          {seasons.map((s, i) => {
+            const expanded = open === s.season_year || (open === null && i === 0)
+            const lg = s.league
+            return (
+              <section key={s.season_year} className="panel overflow-hidden">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() => setOpen(expanded ? -1 : s.season_year)}
+                  className="flex w-full flex-wrap items-center gap-3 bg-black/40 px-4 py-3 text-left hover:bg-black/60"
+                >
+                  <span className="num text-2xl text-flood">{s.season_label}</span>
+                  {lg?.position && <span className="chip bg-club-1 text-club-ink">{ordinal(lg.position)} · {lg.competition}</span>}
+                  {s.trophies.map((t, j) => (
+                    <span key={j} className="chip bg-flood/20 text-flood"><Icon name="trophy" fill className="text-base" /> {t.name}</span>
+                  ))}
+                  <span className="ml-auto flex items-center gap-4 text-sm text-chalk-dim">
+                    {s.top_scorer && <span>Top scorer <b className="text-chalk">{s.top_scorer.player?.name}</b> {s.top_scorer.value}</span>}
+                    <Icon name={expanded ? 'expand_less' : 'expand_more'} className="text-2xl" />
+                  </span>
+                </button>
+                {expanded && (
+                  <div className="p-4">
+                    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+                      {[['Pos', lg?.position ? ordinal(lg.position) : '—'], ['P', lg?.played], ['W', lg?.wins], ['D', lg?.draws], ['L', lg?.losses],
+                        ['GD', lg && lg.played ? (lg.goals_for || 0) - (lg.goals_against || 0) : null], ['Pts', lg?.played ? lg.points : null]].map(([k, v]) => (
+                        <div key={k} className="rounded-lg bg-white/5 px-3 py-2">
+                          <div className="label">{k}</div>
+                          <div className="num text-2xl">{dash(v)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mb-4 grid gap-2 sm:grid-cols-3">
+                      {[['Top scorer', s.top_scorer, 'goals', 'text-pitch'], ['Top assists', s.top_assister, 'assists', 'text-cyan'], ['Clean sheets', s.top_keeper, 'clean sheets', 'text-violet']].map(([k, e, unit, c]) => (
+                        <div key={k} className="flex items-center gap-3 rounded-lg bg-white/5 p-3">
+                          <PlayerFace gameId={e?.player?.game_id} name={e?.player?.name} className="h-10 w-10 rounded-full bg-night-700" />
+                          <div className="min-w-0 flex-1">
+                            <div className="label">{k}</div>
+                            {e ? <Link to={`/players/${e.player?.id}`} className="block truncate font-semibold hover:underline">{e.player?.name}</Link> : <span className="text-chalk-dim">—</span>}
+                          </div>
+                          {e && <span className={`num text-2xl ${c}`} title={unit}>{e.value}</span>}
+                        </div>
+                      ))}
+                    </div>
+                    {s.squad.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[30rem] text-left text-sm">
+                          <thead className="font-head uppercase text-chalk-dim">
+                            <tr>
+                              <th scope="col" className="px-2 py-1">Player</th>
+                              <th scope="col" className="px-2 py-1 text-right">Apps</th>
+                              <th scope="col" className="px-2 py-1 text-right">G</th>
+                              <th scope="col" className="px-2 py-1 text-right">A</th>
+                              <th scope="col" className="px-2 py-1 text-right">CS</th>
+                              <th scope="col" className="px-2 py-1 text-right">Rating</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {s.squad.map((p) => (
+                              <tr key={p.player?.id} className="border-t border-white/5">
+                                <td className="px-2 py-1.5"><Link to={`/players/${p.player?.id}`} className="font-semibold hover:underline">{p.player?.name}</Link> <span className="text-chalk-dim">{p.player?.position}</span></td>
+                                <td className="num px-2 py-1.5 text-right text-lg">{dash(p.appearances)}</td>
+                                <td className="num px-2 py-1.5 text-right text-lg text-pitch">{dash(p.goals)}</td>
+                                <td className="num px-2 py-1.5 text-right text-lg text-cyan">{dash(p.assists)}</td>
+                                <td className="num px-2 py-1.5 text-right text-lg text-violet">{dash(p.clean_sheets)}</td>
+                                <td className="num px-2 py-1.5 text-right text-lg">{p.avg_rating ? p.avg_rating.toFixed(2) : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <p className="mt-2 text-xs text-chalk-dim">Players who made EA’s competition leaderboards that season.</p>
+                      </div>
+                    ) : <p className="text-chalk-dim">No player numbers were tracked for this season.</p>}
+                  </div>
+                )}
+              </section>
+            )
+          })}
+        </div>
+      ) : (
+        <EmptyState icon="calendar_month" title="No seasons on file yet">
+          Seasons are recorded each time you sync the save — FC 26 itself forgets them.
+        </EmptyState>
       )}
     </Async>
   )
@@ -128,6 +225,7 @@ function Club({ club, careerId }) {
         tabs={[
           { id: 'overview', label: 'Overview', icon: 'dashboard' },
           { id: 'squad', label: 'Squad', icon: 'groups' },
+          { id: 'seasons', label: 'Seasons', icon: 'calendar_month' },
           { id: 'table', label: 'Table', icon: 'leaderboard' },
           { id: 'honours', label: 'Honours', icon: 'trophy' },
           { id: 'transfers', label: 'Transfers', icon: 'swap_horiz' },
@@ -177,6 +275,8 @@ function Club({ club, careerId }) {
             ) : <EmptyState icon="groups" title="No registered players" />}
           </Async>
         )}
+
+        {tab === 'seasons' && <SeasonHistory careerId={careerId} clubId={club.id} />}
 
         {tab === 'table' && <LeagueTable careerId={careerId} competitionId={club.competition_id} clubId={club.id} />}
 
@@ -233,7 +333,7 @@ function Club({ club, careerId }) {
                   )
                 })}
               </ul>
-            ) : <EmptyState icon="swap_horiz" title="No transfers logged yet">Transfers appear when you re-import a save after players have moved.</EmptyState>}
+            ) : <EmptyState icon="swap_horiz" title="No transfers logged yet">Moves show up as you sync the save after players change clubs.</EmptyState>}
           </Async>
         )}
       </div>
